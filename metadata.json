@@ -1,0 +1,8 @@
+{
+  "name": "云往AI",
+  "description": "云往AI - 电影级视频生成、全能AI对话、图像创作与视效资产工坊",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
