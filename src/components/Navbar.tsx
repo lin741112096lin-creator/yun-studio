@@ -125,9 +125,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Unified API Configuration Button - ONLY in Tasks (任务库) */}
-          {activeTab === "tasks" && (
+          {(
             <button
-              onClick={() => onOpenApiConfig("video")}
+              onClick={() => onOpenApiConfig(moduleKey as "video" | "chat" | "image")}
               className="group relative flex items-center space-x-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-slate-100 shadow-sm transition-all hover:bg-white/20 active:scale-95 backdrop-blur-md cursor-pointer"
               title="管理并配置多功能 API 统一接口"
             >

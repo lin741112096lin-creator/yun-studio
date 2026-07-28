@@ -19,6 +19,21 @@
 }
 
 @media (max-width: 479px) {
+  .api-config-modal {
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+
+  .api-config-modal input,
+  .api-config-modal select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .api-config-modal button {
+    min-height: 44px;
+  }
+
   .home-hero-nav {
     gap: 0.25rem;
   }
