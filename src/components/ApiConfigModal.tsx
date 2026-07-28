@@ -12,6 +12,32 @@ interface ApiConfigModalProps {
   initialModule?: "video" | "chat" | "image";
 }
 
+const CUSTOM_PROVIDER_BY_TAB = {
+  video: "custom-rest",
+  chat: "custom-chat",
+  image: "custom-image",
+} as const;
+
+function normalizeCustomConfig(config: MultiApiConfig): MultiApiConfig {
+  return {
+    video: {
+      ...config.video,
+      provider: CUSTOM_PROVIDER_BY_TAB.video,
+      apiUrl: config.video.provider === CUSTOM_PROVIDER_BY_TAB.video ? config.video.apiUrl : "",
+    },
+    chat: {
+      ...config.chat,
+      provider: CUSTOM_PROVIDER_BY_TAB.chat,
+      apiUrl: config.chat.provider === CUSTOM_PROVIDER_BY_TAB.chat ? config.chat.apiUrl : "",
+    },
+    image: {
+      ...config.image,
+      provider: CUSTOM_PROVIDER_BY_TAB.image,
+      apiUrl: config.image.provider === CUSTOM_PROVIDER_BY_TAB.image ? config.image.apiUrl : "",
+    },
+  };
+}
+
 export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
   isOpen,
   onClose,
@@ -27,7 +53,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setCurrentMulti({ ...multiConfig });
+      setCurrentMulti(normalizeCustomConfig(multiConfig));
       setActiveTab(initialModule);
       setTestStatus("idle");
     }
@@ -61,7 +87,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
       .map((provider) => provider.defaultUrl)
       .filter(Boolean),
   );
-  const visibleApiUrl = presetUrls.has(currentTabConfig.apiUrl) ? "" : currentTabConfig.apiUrl;
+  const visibleApiUrl = currentTabConfig.apiUrl;
 
   const handleProviderSelect = (provider: PresetProvider) => {
     updateCurrentTabConfig({
@@ -92,7 +118,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveMultiConfig(currentMulti);
+    onSaveMultiConfig(normalizeCustomConfig(currentMulti));
     onClose();
   };
 
@@ -161,6 +187,8 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+          {false && (
+          <>
           {/* Provider Preset Picker */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
@@ -194,6 +222,9 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
               })}
             </div>
           </div>
+
+          </>
+          )}
 
           {/* Custom API Endpoint URL Input */}
           <div>
@@ -263,6 +294,14 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
               <Cpu className="h-3.5 w-3.5 text-cyan-400" />
               <span>4. 选择模型 (Model)</span>
             </label>
+            <input
+              type="text"
+              value={currentTabConfig.selectedModel}
+              onChange={(e) => updateCurrentTabConfig({ selectedModel: e.target.value })}
+              placeholder="请输入上游接口支持的模型名称"
+              className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            />
+            {false && (
             <select
               value={currentTabConfig.selectedModel}
               onChange={(e) => updateCurrentTabConfig({ selectedModel: e.target.value })}
@@ -274,6 +313,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
                 </option>
               ))}
             </select>
+            )}
           </div>
 
           {/* Test Status Feedback */}
