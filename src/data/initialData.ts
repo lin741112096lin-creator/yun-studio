@@ -8,21 +8,20 @@ export const STORAGE_KEY_IMAGE_TASKS = "visioncraft_image_tasks_v1";
 export const DEFAULT_MULTI_CONFIG: MultiApiConfig = {
   video: {
     provider: "ycvip-grok",
-    apiUrl: "https://ycvip.net/v1/media/generate",
+    apiUrl: "",
     apiKey: "",
     selectedModel: "grok-imagine-video-special",
   },
   chat: {
     provider: "google-gemini",
-    apiUrl: "https://generativelanguage.googleapis.com",
+    apiUrl: "",
     apiKey: "",
     selectedModel: "gemini-3.6-flash",
   },
   image: {
     provider: "google-imagen",
-    apiUrl: "https://generativelanguage.googleapis.com",
+    apiUrl: "",
     apiKey: "",
     selectedModel: "imagen-3.0-generate-002",
   },
 };
-

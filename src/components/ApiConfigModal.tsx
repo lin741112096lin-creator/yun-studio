@@ -55,11 +55,17 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
 
   const providers = getProvidersForActiveTab();
   const selectedProviderObj = providers.find((p) => p.id === currentTabConfig.provider) || providers[0];
+  const presetUrls = new Set(
+    [...DEFAULT_PRESET_PROVIDERS, ...CHAT_PRESET_PROVIDERS, ...IMAGE_PRESET_PROVIDERS]
+      .map((provider) => provider.defaultUrl)
+      .filter(Boolean),
+  );
+  const visibleApiUrl = presetUrls.has(currentTabConfig.apiUrl) ? "" : currentTabConfig.apiUrl;
 
   const handleProviderSelect = (provider: PresetProvider) => {
     updateCurrentTabConfig({
       provider: provider.id,
-      apiUrl: provider.defaultUrl,
+      apiUrl: presetUrls.has(currentTabConfig.apiUrl) ? "" : currentTabConfig.apiUrl,
       selectedModel: provider.models[0] || currentTabConfig.selectedModel,
     });
   };
@@ -188,30 +194,24 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
             </div>
           </div>
 
-          {/* API Endpoint URL Input */}
+          {/* Custom API Endpoint URL Input */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
                 <Globe className="h-3.5 w-3.5 text-indigo-400" />
-                <span>2. [{activeTab.toUpperCase()}] API 接口基准地址 (Endpoint URL)</span>
+                <span>2. 填写自定义 API 接口地址</span>
               </label>
-              {selectedProviderObj.defaultUrl && (
-                <button
-                  type="button"
-                  onClick={() => updateCurrentTabConfig({ apiUrl: selectedProviderObj.defaultUrl })}
-                  className="text-[11px] text-indigo-400 hover:underline"
-                >
-                  重置默认地址
-                </button>
-              )}
             </div>
             <input
               type="text"
-              value={currentTabConfig.apiUrl}
+              value={visibleApiUrl}
               onChange={(e) => updateCurrentTabConfig({ apiUrl: e.target.value })}
-              placeholder="https://generativelanguage.googleapis.com 或自定义接口代理地址"
+              placeholder="请输入你的自定义接口地址（可留空使用系统配置）"
               className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
             />
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              官方接口地址已隐藏；填写后将优先使用你输入的地址。
+            </p>
           </div>
 
           {/* API Key Input */}
