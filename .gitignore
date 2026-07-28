@@ -1,6 +1,8 @@
 node_modules/
 build/
 dist/
+cloudbase/index.js
+cloudbase-upload.zip
 coverage/
 .DS_Store
 *.log
