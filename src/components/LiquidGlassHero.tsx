@@ -58,7 +58,7 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
         {/* 2. The "Strong Liquid Glass" Navbar */}
         <header className="sticky top-[30px] z-50 w-fit mx-auto pt-2">
           <nav 
-            className="flex items-center gap-4 sm:gap-8 px-6 py-3 rounded-[16px] backdrop-blur-[50px] border border-black/10 transition-all duration-300"
+            className="home-hero-nav flex items-center gap-2 sm:gap-8 px-3 sm:px-6 py-3 rounded-[16px] backdrop-blur-[50px] border border-black/10 transition-all duration-300"
             style={{
               backgroundColor: "rgba(255, 255, 255, 0.3)",
               boxShadow: "inset 0px 4px 4px 0px rgba(255, 255, 255, 0.25), 0px 10px 30px -10px rgba(0, 0, 0, 0.05)"

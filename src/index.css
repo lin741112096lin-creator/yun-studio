@@ -18,6 +18,43 @@
   font-family: 'Inter', sans-serif;
 }
 
+@media (max-width: 479px) {
+  .home-hero-nav {
+    gap: 0.25rem;
+  }
+
+  .home-hero-nav > div:last-child span {
+    display: none;
+  }
+
+  #ai-studio-workspace > header > div {
+    gap: 0.25rem;
+  }
+
+  #ai-studio-workspace > header nav {
+    gap: 0;
+  }
+
+  #ai-studio-workspace > header nav button {
+    padding-inline: 0.5rem;
+  }
+
+  #ai-studio-workspace > header > div > div:last-child button span {
+    display: none;
+  }
+
+  #ai-studio-workspace > main {
+    padding-inline: 0.75rem;
+    padding-top: 1.25rem;
+  }
+
+  #ai-studio-workspace .home-glass-card-dark,
+  #ai-studio-workspace .studio-glass-card {
+    border-radius: 18px;
+    padding: 1rem;
+  }
+}
+
 /* Strong Liquid Glass Navbar */
 .liquid-glass-nav {
   backdrop-filter: blur(50px);
@@ -192,4 +229,3 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
 }
-

@@ -79,7 +79,9 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   // Sidebar visibility & session editing
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() =>
+    typeof window === "undefined" ? true : window.innerWidth >= 768,
+  );
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
@@ -884,4 +886,3 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
     </div>
   );
 };
-

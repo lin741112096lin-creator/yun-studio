@@ -299,11 +299,11 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
           )}
 
           {/* Footer Actions */}
-          <div className="flex items-center justify-between border-t border-slate-800 pt-3 mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3 mt-4">
             <button
               type="button"
               onClick={handleTestConnection}
-              className="flex items-center space-x-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+              className="flex flex-1 sm:flex-none items-center justify-center space-x-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               <span>测试 [{activeTab.toUpperCase()}] 连通性</span>
