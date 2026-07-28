@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X, Sparkles, Wand2, Copy, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { ApiConfig, ApiEndpointConfig } from "../types";
+import { apiUrl } from "../lib/api";
 
 interface AiPromptWriterModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
     setIsGenerating(true);
     setGeneratedPrompt("");
     try {
-      const res = await fetch("/api/ai-writer-prompt", {
+      const res = await fetch(apiUrl("/api/ai-writer-prompt"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

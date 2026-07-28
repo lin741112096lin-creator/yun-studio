@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { X, Download, Copy, Check, Play, Pause, RefreshCw, Share2, Sparkles, Film, Maximize } from "lucide-react";
 import { VideoTask, ApiConfig } from "../types";
+import { apiUrl } from "../lib/api";
 
 interface VideoPlayerModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   };
 
   const handleCopyVideoUrl = () => {
-    const downloadUrl = task.videoUrl || `${window.location.origin}/api/video-download?url=${encodeURIComponent(task.videoUrl || "")}&operationName=${encodeURIComponent(task.operationName || "")}`;
+    const downloadUrl = task.videoUrl || apiUrl(`/api/video-download?url=${encodeURIComponent(task.videoUrl || "")}&operationName=${encodeURIComponent(task.operationName || "")}`);
     navigator.clipboard.writeText(downloadUrl);
     setUrlCopied(true);
     setTimeout(() => setUrlCopied(false), 2500);
@@ -84,7 +85,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
       }
 
       // 2. Try proxy endpoint via POST with x-api-key header
-      const res = await fetch("/api/video-download", {
+      const res = await fetch(apiUrl("/api/video-download"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

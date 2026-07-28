@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Key, Globe, Cpu, Check, Eye, EyeOff, Sparkles, RefreshCw, AlertCircle, ShieldCheck, Video, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { MultiApiConfig, ApiEndpointConfig, PresetProvider } from "../types";
 import { DEFAULT_PRESET_PROVIDERS, CHAT_PRESET_PROVIDERS, IMAGE_PRESET_PROVIDERS } from "../data/presets";
+import { apiUrl } from "../lib/api";
 
 interface ApiConfigModalProps {
   isOpen: boolean;
@@ -74,7 +75,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
     setTestStatus("testing");
     setTestMessage("正在发起服务端健康与 API 接口连通性校验...");
     try {
-      const res = await fetch("/api/health");
+      const res = await fetch(apiUrl("/api/health"));
       const data = await res.json();
       if (res.ok && data.status === "ok") {
         setTestStatus("success");

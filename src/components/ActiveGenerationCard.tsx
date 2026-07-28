@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Loader2, AlertTriangle, CheckCircle, Clock, Film } from "lucide-react";
 import { VideoTask, ApiConfig } from "../types";
+import { apiUrl } from "../lib/api";
 
 interface ActiveGenerationCardProps {
   task: VideoTask;
@@ -48,7 +49,7 @@ export const ActiveGenerationCard: React.FC<ActiveGenerationCardProps> = ({
       if (currentTask.status === "completed" || currentTask.status === "failed") return;
 
       try {
-        const res = await fetch("/api/video-status", {
+        const res = await fetch(apiUrl("/api/video-status"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

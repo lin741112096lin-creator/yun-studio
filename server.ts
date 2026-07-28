@@ -14,6 +14,22 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
+// Allow the GitHub Pages frontend to call this separately hosted API server.
+const frontendOrigin = process.env.FRONTEND_ORIGIN;
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin;
+  if (!frontendOrigin || requestOrigin === frontendOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin || "*");
+  }
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 // Helper to instantiate GoogleGenAI lazily
 function getGenAIClient(apiKey?: string) {
   const key = apiKey || process.env.GEMINI_API_KEY;

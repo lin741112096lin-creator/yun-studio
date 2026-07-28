@@ -26,6 +26,7 @@ import {
   ExternalLink,
   Sliders,
 } from "lucide-react";
+import { apiUrl } from "../lib/api";
 
 interface TaskManagerProps {
   tasks: VideoTask[];
@@ -97,7 +98,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
         }
       }
 
-      const res = await fetch("/api/video-download", {
+      const res = await fetch(apiUrl("/api/video-download"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -165,7 +166,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
 
     setPollingTaskId(task.id);
     try {
-      const res = await fetch("/api/video-status", {
+      const res = await fetch(apiUrl("/api/video-status"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

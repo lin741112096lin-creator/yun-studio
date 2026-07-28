@@ -1,7 +1,14 @@
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
+export function apiUrl(path: string): string {
+  if (!path.startsWith("/") || !configuredApiBaseUrl) return path;
+  return `${configuredApiBaseUrl}${path}`;
+}
+
 export async function fetchJson<T = any>(url: string, options?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, options);
+    res = await fetch(apiUrl(url), options);
   } catch (netErr: any) {
     throw new Error(`网络连接失败，请检查服务状态 (${netErr?.message || "Fetch Error"})`);
   }
