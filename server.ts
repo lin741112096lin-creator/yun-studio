@@ -45,6 +45,26 @@ function getGenAIClient(apiKey?: string) {
   });
 }
 
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 45000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error: any) {
+    if (controller.signal.aborted) {
+      throw new Error(`上游接口响应超时（${Math.round(timeoutMs / 1000)} 秒），请检查接口地址或服务状态`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Helper function to check if a URL is a valid video URL (excluding images, endpoints & schemas)
 function isValidVideoUrl(urlStr: string): boolean {
   if (!urlStr || typeof urlStr !== "string") return false;
@@ -1312,11 +1332,11 @@ app.post("/api/generate-video", async (req, res) => {
           };
         }
 
-        const targetRes = await fetch(targetUrl, {
+        const targetRes = await fetchWithTimeout(targetUrl, {
           method: "POST",
           headers,
           body: JSON.stringify(payload),
-        });
+        }, 45000);
 
         if (!targetRes.ok) {
           const errText = await targetRes.text();
@@ -1371,7 +1391,8 @@ app.post("/api/generate-video", async (req, res) => {
         });
       } catch (proxyErr: any) {
         console.error("Upstream API generate video error:", proxyErr);
-        res.status(502).json({
+        res.status(200).json({
+          success: false,
           error: `调用上游 API 失败: ${proxyErr.message}`,
         });
       }
@@ -1581,7 +1602,15 @@ app.post("/api/video-status", async (req, res) => {
       return;
     }
 
-    const targetApiUrl = apiUrl || task.apiUrl || (task.provider === "ycvip-grok" ? "https://ycvip.net/v1/media/generate" : "https://ycvip.net/v1/media/generate");
+    const targetApiUrl = resolveVideoTargetUrl(task.provider, apiUrl || task.apiUrl);
+    if (!targetApiUrl) {
+      res.json({
+        done: false,
+        failed: true,
+        error: "缺少视频上游接口地址，请在接口配置中填写自定义地址",
+      });
+      return;
+    }
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const effectiveKey = apiKey || task.apiKey;
     if (effectiveKey) {
@@ -1603,7 +1632,7 @@ app.post("/api/video-status", async (req, res) => {
     // 1. Check cached status URL first if available
     if (successfulStatusUrl) {
       try {
-        const statusRes = await fetch(successfulStatusUrl, { headers });
+        const statusRes = await fetchWithTimeout(successfulStatusUrl, { headers }, 8000);
         if (statusRes.ok) {
           const data: any = await statusRes.json();
           if (data && typeof data === "object" && !isInvalidRouteResponse(data)) {
@@ -1618,6 +1647,7 @@ app.post("/api/video-status", async (req, res) => {
 
     // 2. Build candidate endpoints in deterministic priority order if not found via cached URL
     if (!upstreamData) {
+      const statusDeadline = Date.now() + 12000;
       const getCandidateUrls: string[] = [];
 
       // A. Special YCVIP / Grok / Sora endpoints
@@ -1650,8 +1680,9 @@ app.post("/api/video-status", async (req, res) => {
       );
 
       for (const url of getCandidateUrls) {
+        if (Date.now() >= statusDeadline) break;
         try {
-          const statusRes = await fetch(url, { headers });
+          const statusRes = await fetchWithTimeout(url, { headers }, 5000);
           if (statusRes.ok) {
             const data: any = await statusRes.json();
             if (data && typeof data === "object" && !isInvalidRouteResponse(data)) {
@@ -1664,7 +1695,7 @@ app.post("/api/video-status", async (req, res) => {
       }
 
       // D. Try POST endpoints if GET candidates returned nothing
-      if (!upstreamData) {
+      if (!upstreamData && Date.now() < statusDeadline) {
         const postCandidates = [
           `${cleanBaseUrl}/query`,
           `${cleanBaseUrl}/status`,
@@ -1674,8 +1705,9 @@ app.post("/api/video-status", async (req, res) => {
         ];
 
         for (const postUrl of postCandidates) {
+          if (Date.now() >= statusDeadline) break;
           try {
-            const statusRes = await fetch(postUrl, {
+            const statusRes = await fetchWithTimeout(postUrl, {
               method: "POST",
               headers,
               body: JSON.stringify({
@@ -1683,7 +1715,7 @@ app.post("/api/video-status", async (req, res) => {
                 task_id: task.operationName,
                 operation_id: task.operationName,
               }),
-            });
+            }, 5000);
             if (statusRes.ok) {
               const data: any = await statusRes.json();
               if (data && typeof data === "object" && !isInvalidRouteResponse(data)) {

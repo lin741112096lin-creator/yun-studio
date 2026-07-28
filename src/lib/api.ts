@@ -7,10 +7,17 @@ export function apiUrl(path: string): string {
 
 export async function fetchJson<T = any>(url: string, options?: RequestInit): Promise<T> {
   let res: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
   try {
-    res = await fetch(apiUrl(url), options);
+    res = await fetch(apiUrl(url), { ...options, signal: controller.signal });
   } catch (netErr: any) {
+    if (controller.signal.aborted) {
+      throw new Error("请求超时，上游接口没有在 60 秒内响应，请检查接口地址、Key 和服务状态");
+    }
     throw new Error(`网络连接失败，请检查服务状态 (${netErr?.message || "Fetch Error"})`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const contentType = res.headers.get("content-type") || "";

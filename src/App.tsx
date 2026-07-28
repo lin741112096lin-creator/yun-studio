@@ -173,11 +173,17 @@ export default function App() {
         operationName?: string;
         provider?: string;
         directVideoUrl?: string;
+        success?: boolean;
+        error?: string;
       }>("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
+
+      if (data.success === false) {
+        throw new Error(data.error || "上游视频接口提交失败");
+      }
 
       const newTask: VideoTask = {
         id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
