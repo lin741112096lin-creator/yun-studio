@@ -32,6 +32,8 @@ jobs:
         run: npm ci
 
       - name: Build site
+        env:
+          VITE_API_BASE_URL: https://yun-studio-api-d6g1cjifb0de2027a-1389520332.ap-shanghai.app.tcloudbase.com
         run: npm run build
 
       - name: Disable Jekyll
