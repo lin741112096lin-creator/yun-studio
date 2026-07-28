@@ -44,10 +44,29 @@
 
   #ai-studio-workspace > header > div {
     gap: 0.25rem;
+    min-width: 0;
+    max-width: 100%;
   }
 
-  #ai-studio-workspace > header nav {
+  #ai-studio-workspace > header > div > div:nth-child(2) {
+    min-width: 0;
+    flex: 1;
+    justify-content: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #ai-studio-workspace > header > div > div:nth-child(2)::-webkit-scrollbar {
+    display: none;
+  }
+
+  #ai-studio-workspace > header nav,
+  #ai-studio-workspace > header > div > div:nth-child(2) {
     gap: 0;
+  }
+
+  #ai-studio-workspace > header nav span {
+    display: none;
   }
 
   #ai-studio-workspace > header nav button {
@@ -61,6 +80,12 @@
   #ai-studio-workspace > main {
     padding-inline: 0.75rem;
     padding-top: 1.25rem;
+    min-width: 0;
+  }
+
+  #ai-studio-workspace [class~="rounded-[24px]"] {
+    padding: 1rem;
+    border-radius: 18px;
   }
 
   #ai-studio-workspace .home-glass-card-dark,
@@ -68,6 +93,19 @@
     border-radius: 18px;
     padding: 1rem;
   }
+
+  #ai-studio-workspace [class*="h-[calc(100vh-7.5rem)]"] {
+    height: calc(100dvh - 7rem);
+    min-height: 32rem;
+  }
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Strong Liquid Glass Navbar */
