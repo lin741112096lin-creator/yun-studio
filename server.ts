@@ -371,9 +371,9 @@ app.post("/api/enhance-prompt", async (req, res) => {
     }
 
     // B. Try Chat API proxy if Gemini didn't return text
-    if (!enhancedPrompt && chatConfig && chatConfig.apiUrl && chatConfig.apiKey) {
+    if (!enhancedPrompt && chatConfig && chatConfig.apiKey) {
       try {
-        const chatRes = await fetch(chatConfig.apiUrl, {
+        const chatRes = await fetch(resolveChatTargetUrl(chatConfig.provider, chatConfig.apiUrl), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -452,6 +452,40 @@ async function callGeminiGenerateText(
   return null;
 }
 
+function resolveChatTargetUrl(provider: string, apiUrl?: string): string {
+  if (apiUrl?.trim()) return apiUrl.trim();
+
+  const builtInUrls: Record<string, string> = {
+    "openai-chat": "https://api.openai.com/v1/chat/completions",
+    "anthropic-claude": "https://api.anthropic.com/v1/messages",
+    "deepseek-chat": "https://api.deepseek.com/v1/chat/completions",
+    "ycvip-chat": "https://ycvip.net/v1/chat/completions",
+  };
+
+  return builtInUrls[provider] || "https://api.openai.com/v1/chat/completions";
+}
+
+function resolveImageTargetUrl(provider: string, apiUrl?: string): string {
+  if (apiUrl?.trim()) return apiUrl.trim();
+  if (provider === "flux-ycvip") return "https://ycvip.net/v1/images/generations";
+  return "https://api.openai.com/v1/images/generations";
+}
+
+function resolveVideoTargetUrl(provider: string, apiUrl?: string): string | undefined {
+  if (apiUrl?.trim()) return apiUrl.trim();
+
+  const builtInUrls: Record<string, string> = {
+    "ycvip-grok": "https://ycvip.net/v1/media/generate",
+    "openai-sora": "https://api.openai.com/v1/videos/generations",
+    "runway-gen3": "https://api.runwayml.com/v1/tasks",
+    "luma-dream-machine": "https://api.lumalabs.ai/dream-machine/v1/generations",
+    "minimax-video": "https://api.minimax.chat/v1/video_generation",
+    "kling-ai": "https://api.klingai.com/v1/videos/text2video",
+  };
+
+  return builtInUrls[provider];
+}
+
 // 3.1 AI Prompt Writer Assistant Route (AI 帮写提示词)
 app.post("/api/ai-writer-prompt", async (req, res) => {
   try {
@@ -484,9 +518,9 @@ app.post("/api/ai-writer-prompt", async (req, res) => {
     }
 
     // B. Try Chat API proxy if Gemini unavailable
-    if (!generatedPrompt && chatConfig && chatConfig.apiUrl && chatConfig.apiKey) {
+    if (!generatedPrompt && chatConfig && chatConfig.apiKey) {
       try {
-        const chatRes = await fetch(chatConfig.apiUrl, {
+        const chatRes = await fetch(resolveChatTargetUrl(chatConfig.provider, chatConfig.apiUrl), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -713,7 +747,7 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // C. OpenAI / Anthropic / Custom REST proxy format
-    const targetUrl = apiUrl || "https://api.openai.com/v1/chat/completions";
+    const targetUrl = resolveChatTargetUrl(provider, apiUrl);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -939,7 +973,7 @@ app.post("/api/generate-image", async (req, res) => {
     }
 
     // C. OpenAI DALL-E / Custom REST API Proxy
-    const targetUrl = apiUrl || "https://api.openai.com/v1/images/generations";
+    const targetUrl = resolveImageTargetUrl(provider, apiUrl);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -1238,7 +1272,7 @@ app.post("/api/generate-video", async (req, res) => {
     }
 
     // C. REST API / YCVIP / Grok / Sora / Kling / MiniMax Integration
-    const targetUrl = apiUrl || (provider === "ycvip-grok" ? "https://ycvip.net/v1/media/generate" : undefined);
+    const targetUrl = resolveVideoTargetUrl(provider, apiUrl);
     const isYcvipMedia = provider === "ycvip-grok" || (targetUrl && targetUrl.includes("ycvip.net")) || model.includes("grok") || model.includes("sora") || model.includes("veo");
 
     if (targetUrl) {
