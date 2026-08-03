@@ -7,9 +7,7 @@ import {
   Trash2,
   Copy,
   Check,
-  Bot,
   User,
-  Settings,
   Lightbulb,
   Image as ImageIcon,
   Film,
@@ -28,9 +26,9 @@ import { fetchJson } from "../lib/api";
 
 interface ChatStudioProps {
   chatConfig: ApiEndpointConfig;
-  onOpenApiConfig: () => void;
   sessions: ChatSession[];
   onSaveSessions: (sessions: ChatSession[]) => void;
+  floating?: boolean;
 }
 
 const PRESET_SYSTEM_ROLES = [
@@ -47,6 +45,28 @@ const INSPIRATION_QUESTIONS = [
   "如何用 Python 编写一段批量压缩图片并保存的脚本？",
 ];
 
+const ChatPetAvatar = () => (
+  <span className="chat-pet-avatar" aria-hidden="true">
+    <span className="pixel-pet chat-pet-avatar__pixel-pet">
+      <span className="pixel-pet__body">
+        <span className="pixel-pet__ear pixel-pet__ear--left" />
+        <span className="pixel-pet__ear pixel-pet__ear--right" />
+        <span className="pixel-pet__eye pixel-pet__eye--left"><i /></span>
+        <span className="pixel-pet__eye pixel-pet__eye--right"><i /></span>
+        <span className="pixel-pet__cheek pixel-pet__cheek--left" />
+        <span className="pixel-pet__cheek pixel-pet__cheek--right" />
+        <span className="pixel-pet__belly" />
+        <span className="pixel-pet__mouth" />
+      </span>
+      <span className="pixel-pet__leg pixel-pet__leg--left" />
+      <span className="pixel-pet__leg pixel-pet__leg--right" />
+      <span className="pixel-pet__foot pixel-pet__foot--left" />
+      <span className="pixel-pet__foot pixel-pet__foot--right" />
+      <span className="pixel-pet__tail" />
+    </span>
+  </span>
+);
+
 const formatRelativeTime = (timestamp: number) => {
   const diffSec = Math.floor((Date.now() - timestamp) / 1000);
   if (diffSec < 60) return "刚刚";
@@ -61,9 +81,9 @@ const formatRelativeTime = (timestamp: number) => {
 
 export const ChatStudio: React.FC<ChatStudioProps> = ({
   chatConfig,
-  onOpenApiConfig,
   sessions,
   onSaveSessions,
+  floating = false,
 }) => {
   // Ensure default session exists if empty
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
@@ -80,7 +100,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
 
   // Sidebar visibility & session editing
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() =>
-    typeof window === "undefined" ? true : window.innerWidth >= 768,
+    floating ? false : typeof window === "undefined" ? true : window.innerWidth >= 768,
   );
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
@@ -357,6 +377,20 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
     setShowClearConfirm(false);
   };
 
+  useEffect(() => {
+    const handleNewSessionCommand = () => handleCreateNewSession();
+    const handleClearSessionCommand = () => setShowClearConfirm(true);
+    const handleShowHistoryCommand = () => setIsSidebarOpen(true);
+    window.addEventListener("yunwang-chat-new", handleNewSessionCommand);
+    window.addEventListener("yunwang-chat-clear", handleClearSessionCommand);
+    window.addEventListener("yunwang-chat-history", handleShowHistoryCommand);
+    return () => {
+      window.removeEventListener("yunwang-chat-new", handleNewSessionCommand);
+      window.removeEventListener("yunwang-chat-clear", handleClearSessionCommand);
+      window.removeEventListener("yunwang-chat-history", handleShowHistoryCommand);
+    };
+  }, [sessions, onSaveSessions]);
+
   const handleCopyText = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
     setCopiedIndex(idx);
@@ -364,7 +398,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
   };
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] home-glass-card-dark rounded-[24px] border border-slate-200/80 overflow-hidden shadow-xl backdrop-blur-2xl relative">
+    <div className={`${floating ? "chat-studio-floating" : ""} ${floating && isSidebarOpen ? "chat-studio-floating--history-open" : ""} flex h-[calc(100vh-7.5rem)] home-glass-card-dark rounded-[24px] border border-slate-200/80 overflow-hidden shadow-xl backdrop-blur-2xl relative`}>
       {/* Left Session History Sidebar */}
       <div
         className={`${
@@ -516,12 +550,22 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
           {/* Right Top Controls */}
           <div className="flex items-center space-x-2">
             <button
+              type="button"
+              onClick={handleCreateNewSession}
+              className="flex items-center space-x-1 rounded-full border border-[#0084FF]/25 bg-[#0084FF]/5 px-3 py-1.5 text-xs font-semibold text-[#006fcf] transition-all hover:border-[#0084FF]/50 hover:bg-[#0084FF]/10 active:scale-95"
+              title="新建对话"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>新建对话</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setShowClearConfirm(true)}
               className="flex items-center space-x-1 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs text-slate-700 hover:text-rose-600 hover:border-rose-300 transition-all active:scale-95 shadow-sm cursor-pointer"
               title="清空当前会话消息"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">清空本页</span>
+              <span>清空记录</span>
             </button>
           </div>
         </div>
@@ -537,13 +581,13 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({
               >
                 {/* Avatar Icon */}
                 <div
-                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl text-xs font-bold shadow-md ${
+                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center text-xs font-bold ${
                     isUser
                       ? "bg-[#0084FF] text-white shadow-[#0084FF]/30"
-                      : "bg-white text-[#0084FF] border border-slate-200/80"
+                      : "chat-pet-avatar-host"
                   }`}
                 >
-                  {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                  {isUser ? <User className="h-4 w-4" /> : <ChatPetAvatar />}
                 </div>
 
                 {/* Message Bubble Container */}

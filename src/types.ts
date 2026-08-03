@@ -1,11 +1,25 @@
 export type VideoGenerationMode = "text-to-video" | "image-to-video";
 
+export type TaskSource = "standalone-video" | "standalone-image" | "product-workflow";
+
+export type AuthRole = "admin" | "user";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: AuthRole;
+  active: boolean;
+  createdAt: number;
+  starBalance?: number | null;
+}
+
 export type AspectRatio = "16:9" | "9:16" | "1:1" | "4:3" | "21:9" | "3:2";
+export type VideoAspectRatio = "16:9" | "9:16";
 export type ImageAspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:2";
 
-export type Resolution = "720p" | "1080p" | "4k";
+export type Resolution = "480p" | "720p";
 
-export type ActiveTab = "home" | "video" | "chat" | "image" | "tasks";
+export type ActiveTab = "home" | "workflow" | "video" | "chat" | "image" | "tasks";
 
 export interface ApiEndpointConfig {
   provider: string;
@@ -29,7 +43,7 @@ export interface VideoGenerationRequest {
   negativePrompt?: string;
   style?: string;
   cameraMotion?: string;
-  aspectRatio: AspectRatio;
+  aspectRatio: VideoAspectRatio;
   resolution: Resolution;
   duration: number; // in seconds
   image?: {
@@ -44,6 +58,7 @@ export interface VideoGenerationRequest {
   apiUrl?: string;
   apiKey?: string;
   model: string;
+  source?: TaskSource;
 }
 
 export type TaskStatus = "pending" | "processing" | "completed" | "failed";
@@ -57,7 +72,7 @@ export interface VideoTask {
   negativePrompt?: string;
   style?: string;
   cameraMotion?: string;
-  aspectRatio: AspectRatio;
+  aspectRatio: VideoAspectRatio;
   resolution: Resolution;
   duration: number;
   status: TaskStatus;
@@ -70,6 +85,7 @@ export interface VideoTask {
   thumbnailUrl?: string;
   error?: string;
   sourceImage?: string;
+  source?: TaskSource;
 }
 
 // Chat types
@@ -106,6 +122,7 @@ export interface ImageTask {
   createdAt: number;
   error?: string;
   referenceImage?: string;
+  source?: TaskSource;
 }
 
 export interface PresetProvider {
@@ -143,4 +160,3 @@ export interface PromptTemplate {
   tags: string[];
   coverImage?: string;
 }
-

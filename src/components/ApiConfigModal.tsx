@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Key, Globe, Cpu, Check, Eye, EyeOff, Sparkles, RefreshCw, AlertCircle, ShieldCheck, Video, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { MultiApiConfig, ApiEndpointConfig, PresetProvider } from "../types";
 import { DEFAULT_PRESET_PROVIDERS, CHAT_PRESET_PROVIDERS, IMAGE_PRESET_PROVIDERS } from "../data/presets";
-import { apiUrl } from "../lib/api";
+import { apiUrl, authHeaders } from "../lib/api";
 
 interface ApiConfigModalProps {
   isOpen: boolean;
@@ -19,11 +19,12 @@ const CUSTOM_PROVIDER_BY_TAB = {
 } as const;
 
 function normalizeCustomConfig(config: MultiApiConfig): MultiApiConfig {
+  const useCustomVideoEndpoint = config.video.provider === CUSTOM_PROVIDER_BY_TAB.video && Boolean(config.video.apiUrl?.trim());
   return {
     video: {
       ...config.video,
-      provider: CUSTOM_PROVIDER_BY_TAB.video,
-      apiUrl: config.video.provider === CUSTOM_PROVIDER_BY_TAB.video ? config.video.apiUrl : "",
+      provider: useCustomVideoEndpoint ? CUSTOM_PROVIDER_BY_TAB.video : "ycvip-grok",
+      apiUrl: useCustomVideoEndpoint ? config.video.apiUrl : "",
     },
     chat: {
       ...config.chat,
@@ -88,6 +89,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
       .filter(Boolean),
   );
   const visibleApiUrl = currentTabConfig.apiUrl;
+  const isCustomVideoEndpoint = activeTab === "video" && currentTabConfig.provider === CUSTOM_PROVIDER_BY_TAB.video;
 
   const handleProviderSelect = (provider: PresetProvider) => {
     updateCurrentTabConfig({
@@ -101,7 +103,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
     setTestStatus("testing");
     setTestMessage("正在发起服务端健康与 API 接口连通性校验...");
     try {
-      const res = await fetch(apiUrl("/api/health"));
+      const res = await fetch(apiUrl("/api/health"), { headers: authHeaders() });
       const data = await res.json();
       if (res.ok && data.status === "ok") {
         setTestStatus("success");
@@ -226,7 +228,43 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
           </>
           )}
 
+          {activeTab === "video" && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">视频接口方式</span>
+                <span className="text-[11px] text-slate-500">
+                  {isCustomVideoEndpoint ? "已启用自定义接口" : "默认使用固定网关"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateCurrentTabConfig({ provider: "ycvip-grok", apiUrl: "" })}
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                    !isCustomVideoEndpoint
+                      ? "border-indigo-500 bg-indigo-600 text-white"
+                      : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
+                  }`}
+                >
+                  指定接口
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCurrentTabConfig({ provider: "custom-rest" })}
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                    isCustomVideoEndpoint
+                      ? "border-indigo-500 bg-indigo-600 text-white"
+                      : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
+                  }`}
+                >
+                  自定义接口
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Custom API Endpoint URL Input */}
+          {(activeTab !== "video" || isCustomVideoEndpoint) && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
@@ -245,6 +283,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
               官方接口地址已隐藏；填写后将优先使用你输入的地址。
             </p>
           </div>
+          )}
 
           {/* API Key Input */}
           <div>

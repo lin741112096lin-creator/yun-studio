@@ -6,5 +6,6 @@ cloudbase-upload.zip
 coverage/
 .DS_Store
 *.log
+.auth/
 .env*
 !.env.example

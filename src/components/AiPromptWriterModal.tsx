@@ -1,21 +1,25 @@
 import React, { useState } from "react";
 import { X, Sparkles, Wand2, Copy, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { ApiConfig, ApiEndpointConfig } from "../types";
-import { apiUrl } from "../lib/api";
+import { apiUrl, authHeaders } from "../lib/api";
 
 interface AiPromptWriterModalProps {
   isOpen: boolean;
   onClose: () => void;
   apiConfig: ApiConfig;
   chatConfig?: ApiEndpointConfig;
+  promptType?: "video" | "image";
   onApplyPrompt: (generatedPrompt: string) => void;
 }
+
+const VIDEO_TEXT_RESTRICTION = "画面中不生成任何字幕、文字、标题、贴纸或水印。";
 
 export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
   isOpen,
   onClose,
   apiConfig,
   chatConfig,
+  promptType = "video",
   onApplyPrompt,
 }) => {
   const [topic, setTopic] = useState<string>("");
@@ -25,6 +29,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedPrompt, setGeneratedPrompt] = useState<string>("");
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const isImagePrompt = promptType === "image";
 
   if (!isOpen) return null;
 
@@ -48,12 +53,13 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
     try {
       const res = await fetch(apiUrl("/api/ai-writer-prompt"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           topic: topic.trim(),
           theme,
           cameraPreference,
           targetLanguage: language,
+          mode: promptType,
           apiKey: apiConfig.apiKey,
           chatConfig,
         }),
@@ -61,7 +67,11 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
 
       const data = await res.json();
       if (data.generatedPrompt) {
-        setGeneratedPrompt(data.generatedPrompt);
+        setGeneratedPrompt(
+            isImagePrompt || data.generatedPrompt.includes(VIDEO_TEXT_RESTRICTION)
+            ? data.generatedPrompt
+            : `${data.generatedPrompt} ${VIDEO_TEXT_RESTRICTION}`,
+        );
       } else if (data.error) {
         alert(`生成失败: ${data.error}`);
       }
@@ -166,6 +176,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
               </select>
             </div>
 
+            {!isImagePrompt && (
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 3. 镜头运镜偏好
@@ -182,6 +193,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
                 <option value="临场手持轻摇">手持轻摇 (Handheld)</option>
               </select>
             </div>
+            )}
           </div>
 
           {/* Output Language */}

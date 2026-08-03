@@ -1,24 +1,44 @@
-import React, { useState, useEffect } from "react";
-import { Sparkles, Film, Image as ImageIcon, Camera, Clock, Sliders, Play, Wand2, Upload, X, ChevronDown, ChevronUp, Layers, Cpu } from "lucide-react";
-import { ApiEndpointConfig, AspectRatio, VideoGenerationRequest } from "../types";
+import React, { useState, useEffect, useRef } from "react";
+import { Sparkles, Film, Image as ImageIcon, Camera, Clock, Sliders, Play, Wand2, Upload, X, Maximize2, ChevronDown, ChevronUp, Cpu, Check } from "lucide-react";
+import { ApiEndpointConfig, VideoAspectRatio, VideoGenerationRequest, TaskSource } from "../types";
 import { AiPromptWriterModal } from "./AiPromptWriterModal";
 import { fetchJson } from "../lib/api";
 import { DEFAULT_PRESET_PROVIDERS } from "../data/presets";
+import { analyzeReferenceImage, appendNegativePrompt } from "../lib/referenceImage";
+import { optimizeImageFile } from "../lib/imageUpload";
+
+const VIDEO_OUTPUT_LANGUAGES = [
+  { id: "zh-CN", label: "中文", instruction: "Simplified Chinese" },
+  { id: "en", label: "English", instruction: "English" },
+  { id: "ms", label: "Bahasa Melayu", instruction: "Bahasa Melayu (Malay)" },
+  { id: "th", label: "ไทย", instruction: "Thai" },
+  { id: "ja", label: "日本語", instruction: "Japanese" },
+  { id: "ko", label: "한국어", instruction: "Korean" },
+  { id: "other", label: "其他语言", instruction: "the custom language specified by the customer" },
+];
+
+const getLanguageInstruction = (languageId: string) =>
+  VIDEO_OUTPUT_LANGUAGES.find((language) => language.id === languageId)?.instruction || "Simplified Chinese";
 
 interface VideoStudioProps {
   apiConfig: ApiEndpointConfig;
   chatConfig?: ApiEndpointConfig;
-  onOpenApiConfig: () => void;
-  onOpenTemplates: () => void;
+  videoTemplateOptions?: { id: string; label: string; goal: string }[];
+  selectedVideoTemplateId?: string;
+  onVideoTemplateChange?: (templateId: string) => void;
   onUpdateApiConfig?: (updates: Partial<ApiEndpointConfig>) => void;
   onSubmitTask: (request: VideoGenerationRequest) => void;
   isSubmitting: boolean;
+  hideModeSwitcher?: boolean;
+  taskSource?: TaskSource;
   prefilledPrompt?: {
     prompt: string;
     style?: string;
-    aspectRatio?: AspectRatio;
+    aspectRatio?: VideoAspectRatio;
     imageUrl?: string;
     mode?: "text-to-video" | "image-to-video";
+    duration?: number;
+    outputLanguage?: string;
   };
 }
 
@@ -32,30 +52,38 @@ const CAMERA_MOTIONS = [
   { id: "tilt_down", label: "俯角降镜头 (Tilt Down)", description: "俯瞰视角呈现地面与细节" },
 ];
 
+const VIDEO_TEXT_RESTRICTION = "画面中不生成任何字幕、文字、标题、贴纸或水印。";
+
 export const VideoStudio: React.FC<VideoStudioProps> = ({
   apiConfig,
   chatConfig,
-  onOpenApiConfig,
-  onOpenTemplates,
+  videoTemplateOptions,
+  selectedVideoTemplateId,
+  onVideoTemplateChange,
   onUpdateApiConfig,
   onSubmitTask,
   isSubmitting,
+  hideModeSwitcher = false,
+  taskSource = "standalone-video" as TaskSource,
   prefilledPrompt,
 }) => {
-  const [mode, setMode] = useState<"text-to-video" | "image-to-video">("text-to-video");
+  const [mode, setMode] = useState<"text-to-video" | "image-to-video">("image-to-video");
   const [prompt, setPrompt] = useState<string>("");
   const [negativePrompt, setNegativePrompt] = useState<string>("");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("16:9");
+  const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>("16:9");
   const [cameraMotion, setCameraMotion] = useState<string>("auto");
-  const [resolution, setResolution] = useState<"720p" | "1080p">("720p");
-  const [duration, setDuration] = useState<number>(5);
+  const [resolution, setResolution] = useState<"480p" | "720p">("720p");
+  const [duration, setDuration] = useState<number>(8);
+  const [outputLanguage, setOutputLanguage] = useState<string>("zh-CN");
+  const [customOutputLanguage, setCustomOutputLanguage] = useState<string>("");
+  const [isTranslatingPrompt, setIsTranslatingPrompt] = useState(false);
+  const prefilledTranslationKeyRef = useRef<string | null>(null);
 
   const [sourceImage, setSourceImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-
-  const [enableLastFrame, setEnableLastFrame] = useState<boolean>(false);
-  const [lastFrameImage, setLastFrameImage] = useState<File | null>(null);
-  const [lastFramePreview, setLastFramePreview] = useState<string | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isAnalyzingReference, setIsAnalyzingReference] = useState<boolean>(false);
 
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [isEnhancing, setIsEnhancing] = useState<boolean>(false);
@@ -65,38 +93,161 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     if (prefilledPrompt) {
       if (prefilledPrompt.prompt) setPrompt(prefilledPrompt.prompt);
       if (prefilledPrompt.aspectRatio) setAspectRatio(prefilledPrompt.aspectRatio);
+      if (prefilledPrompt.duration) setDuration(prefilledPrompt.duration);
+      if (prefilledPrompt.outputLanguage) setOutputLanguage(prefilledPrompt.outputLanguage);
       if (prefilledPrompt.imageUrl) {
         setMode("image-to-video");
         setImagePreview(prefilledPrompt.imageUrl);
+        setImageLoadError(false);
       } else if (prefilledPrompt.mode) {
         setMode(prefilledPrompt.mode);
       }
     }
-  }, [prefilledPrompt]);
+  }, [
+    prefilledPrompt?.prompt,
+    prefilledPrompt?.aspectRatio,
+    prefilledPrompt?.duration,
+    prefilledPrompt?.imageUrl,
+    prefilledPrompt?.mode,
+    prefilledPrompt?.outputLanguage,
+  ]);
 
-  const handleImageUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    type: "source" | "lastFrame"
-  ) => {
+  useEffect(() => {
+    const sourcePrompt = prefilledPrompt?.prompt;
+    const targetLanguageId = prefilledPrompt?.outputLanguage;
+    if (
+      !sourcePrompt ||
+      !targetLanguageId ||
+      targetLanguageId === "zh-CN" ||
+      !/[一-鿿]/.test(sourcePrompt) ||
+      !chatConfig?.apiKey
+    ) return;
+
+    const translationKey = `${targetLanguageId}:${sourcePrompt}`;
+    if (prefilledTranslationKeyRef.current === translationKey) return;
+    prefilledTranslationKeyRef.current = translationKey;
+
+    const targetLanguage = getLanguageInstruction(targetLanguageId);
+    let cancelled = false;
+    setIsTranslatingPrompt(true);
+    void fetchJson<{ response?: string; error?: string }>("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: chatConfig.provider,
+        apiUrl: chatConfig.apiUrl,
+        apiKey: chatConfig.apiKey,
+        model: chatConfig.selectedModel,
+        messages: [{
+          role: "user",
+          content: `Translate this AI video prompt into ${targetLanguage}. Preserve all time ranges, shot structure, product identity, character continuity, no-face restrictions, and no-subtitle rules. Keep brand names, product models, trademarks, and labels unchanged. Return only the translated prompt:\n\n${sourcePrompt}`,
+        }],
+      }),
+    }).then((data) => {
+      if (!cancelled && data.response) {
+        setPrompt(data.response.replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/i, "").trim());
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        console.error("Initial prompt translation error:", error);
+        setOutputLanguage("zh-CN");
+      }
+    }).finally(() => {
+      if (!cancelled) setIsTranslatingPrompt(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [prefilledPrompt?.prompt, prefilledPrompt?.outputLanguage, chatConfig?.apiKey]);
+
+  useEffect(() => {
+    if (mode !== "image-to-video" || !imagePreview || !chatConfig?.apiKey) {
+      setIsAnalyzingReference(false);
+      return;
+    }
+    let cancelled = false;
+    setIsAnalyzingReference(true);
+    analyzeReferenceImage(imagePreview, chatConfig, "video")
+      .then((generatedNegativePrompt) => {
+        if (!cancelled && generatedNegativePrompt) {
+          setNegativePrompt((current) => appendNegativePrompt(current, generatedNegativePrompt));
+          setShowAdvanced(true);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("Reference image analysis failed:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsAnalyzingReference(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, imagePreview, chatConfig]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
+    if (file.size > 30 * 1024 * 1024) {
       alert("上传文件大小不能超过 15MB");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (type === "source") {
-        setSourceImage(file);
-        setImagePreview(event.target?.result as string);
-      } else {
-        setLastFrameImage(file);
-        setLastFramePreview(event.target?.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+    const optimizedImage = await optimizeImageFile(file);
+    {
+      setSourceImage(file);
+      setImagePreview(optimizedImage);
+      setImageLoadError(false);
+    }
+  };
+
+  const getVideoLanguageName = (languageId = outputLanguage, customLanguage = customOutputLanguage) => {
+    const selectedLanguage = VIDEO_OUTPUT_LANGUAGES.find((language) => language.id === languageId);
+    return languageId === "other" && customLanguage.trim()
+      ? customLanguage.trim()
+      : selectedLanguage?.instruction || "Simplified Chinese";
+  };
+
+  const handleOutputLanguageChange = async (nextLanguage: string) => {
+    const previousLanguage = outputLanguage;
+    setOutputLanguage(nextLanguage);
+    if (nextLanguage !== "other") setCustomOutputLanguage("");
+
+    if (!prefilledPrompt?.prompt || !prompt.trim() || nextLanguage === previousLanguage || nextLanguage === "other") return;
+
+    setIsTranslatingPrompt(true);
+    try {
+      const targetLanguage = getVideoLanguageName(nextLanguage);
+      const data = await fetchJson<{ response?: string; error?: string }>("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: chatConfig?.provider,
+          apiUrl: chatConfig?.apiUrl,
+          apiKey: chatConfig?.apiKey,
+          model: chatConfig?.selectedModel,
+          messages: [{
+            role: "user",
+            content: `Translate the following AI video prompt into ${targetLanguage}. Preserve the time ranges, shot structure, product identity rules, character continuity rules, no-face restrictions, and no-subtitle rule. Translate only the natural-language content; keep brand names, product models, trademarks, and labels unchanged. Return only the translated prompt:\n\n${prompt}`,
+          }],
+        }),
+      });
+      if (!data.response) throw new Error(data.error || "Translation returned no content");
+      setPrompt(data.response.replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/i, "").trim());
+    } catch (error) {
+      console.error("Prompt translation error:", error);
+      setOutputLanguage(previousLanguage);
+      alert("提示词翻译失败，已恢复原语言。请检查对话接口配置后重试。");
+    } finally {
+      setIsTranslatingPrompt(false);
+    }
+  };
+
+  const getVideoLanguageInstruction = () => {
+    const languageName = getVideoLanguageName();
+    return `Output language: ${languageName}. Use this language for any narration, dialogue, spoken lines, and human-readable prompt instructions. Keep brand names, product models, trademarks, and labels unchanged. Do not generate subtitles, captions, watermarks, or random text.`;
   };
 
   const handleEnhancePrompt = async () => {
@@ -110,6 +261,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           prompt,
           cameraMotion,
           type: "video",
+          targetLanguage: getLanguageInstruction(outputLanguage),
           apiKey: apiConfig?.apiKey,
           chatConfig,
         }),
@@ -132,8 +284,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       return;
     }
 
-    if (mode === "image-to-video" && !imagePreview) {
-      alert("请先上传起始帧图片");
+    if (mode === "image-to-video" && (!imagePreview || imageLoadError)) {
+      alert(imageLoadError ? "当前起始帧图片地址已失效，请返回上一步重新生成或重新上传" : "请先上传起始帧图片");
       return;
     }
 
@@ -149,170 +301,157 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       aspectRatio,
       resolution,
       duration,
+      source: taskSource,
       image: mode === "image-to-video" && imagePreview ? {
         data: imagePreview,
-        mimeType: sourceImage?.type || "image/png"
-      } : undefined,
-      lastFrame: enableLastFrame && lastFramePreview ? {
-        data: lastFramePreview,
-        mimeType: lastFrameImage?.type || "image/png"
+         mimeType: imagePreview.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/)?.[1] || sourceImage?.type || "image/png"
       } : undefined,
     };
 
+    request.prompt = `${request.prompt}\n\n${getVideoLanguageInstruction()}`;
+    request.prompt = request.prompt.includes(VIDEO_TEXT_RESTRICTION)
+      ? request.prompt
+      : `${request.prompt} ${VIDEO_TEXT_RESTRICTION}`;
     onSubmitTask(request);
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Liquid Glass Segmented Switcher Header */}
-      <div className="flex items-center justify-between border-b border-slate-200/80 pb-4">
-        <div className="flex items-center space-x-1.5 p-1.5 rounded-full bg-white/80 border border-slate-200/80 backdrop-blur-md shadow-sm">
-          <button
-            type="button"
-            onClick={() => setMode("text-to-video")}
-            className={`flex items-center space-x-2 rounded-full px-5 py-2 text-xs font-semibold transition-all duration-200 ${
-              mode === "text-to-video"
-                ? "bg-[#0084FF] text-white shadow-md shadow-[#0084FF]/30 scale-105"
-                : "text-slate-700 hover:text-slate-950 hover:bg-white/80"
-            }`}
-          >
-            <Film className="h-4 w-4" />
-            <span>文生视频 (Text to Video)</span>
-          </button>
+  const currentProviderObj = DEFAULT_PRESET_PROVIDERS.find((p) => p.id === apiConfig.provider) || DEFAULT_PRESET_PROVIDERS[0];
+  const availableModels = currentProviderObj ? currentProviderObj.models : ["grok-imagine-video-special"];
+  const currentModel = apiConfig.selectedModel || "grok-imagine-video-special";
 
+  return (
+    <div className={`video-studio-shell video-studio-shell--${mode} video-studio-shell--${taskSource}`}>
+      {/* Primary creation mode */}
+      {!hideModeSwitcher && (
+      <div className="video-studio-modebar">
+        <div>
+          <p className="video-studio-kicker">CREATE MODE</p>
+          <p className="video-studio-modehint">选择一种方式开始创作</p>
+        </div>
+        <div className="video-studio-segmented">
           <button
             type="button"
             onClick={() => setMode("image-to-video")}
-            className={`flex items-center space-x-2 rounded-full px-5 py-2 text-xs font-semibold transition-all duration-200 ${
+            className={`video-studio-segment ${
               mode === "image-to-video"
-                ? "bg-[#0084FF] text-white shadow-md shadow-[#0084FF]/30 scale-105"
-                : "text-slate-700 hover:text-slate-950 hover:bg-white/80"
+                ? "video-studio-segment--active"
+                : ""
             }`}
           >
             <ImageIcon className="h-4 w-4" />
-            <span>图生视频 (Image to Video)</span>
+            <span>图生视频</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode("text-to-video")}
+            className={`video-studio-segment ${
+              mode === "text-to-video"
+                ? "video-studio-segment--active"
+                : ""
+            }`}
+          >
+            <Film className="h-4 w-4" />
+            <span>文生视频</span>
           </button>
         </div>
       </div>
+      )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="video-studio-form">
         {/* Image Upload Zone for Image to Video */}
         {mode === "image-to-video" && (
-          <div className="home-glass-card-dark p-6 rounded-[24px]">
-            <div className="flex items-center justify-between mb-3">
-              <label className="flex items-center space-x-2 text-xs font-bold text-slate-900">
-                <ImageIcon className="h-4 w-4 text-[#0084FF]" />
-                <span>1. 上传起始帧图片 (First Frame)</span>
-              </label>
-              <span className="text-[11px] text-slate-500">支持 JPG / PNG / WebP, 最大 15MB</span>
-            </div>
-
-            {imagePreview ? (
-              <div className="relative aspect-video max-h-64 w-full overflow-hidden rounded-[20px] border border-slate-200/80 bg-slate-100">
-                <img
-                  src={imagePreview}
-                  alt="Source"
-                  className="h-full w-full object-contain"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSourceImage(null);
-                    setImagePreview(null);
-                  }}
-                  className="absolute right-3 top-3 rounded-full bg-slate-900/80 p-2 text-slate-200 hover:text-rose-400 transition-colors border border-white/20 backdrop-blur-md shadow-lg"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label className="flex flex-col items-center justify-center h-40 w-full cursor-pointer rounded-[20px] border-2 border-dashed border-slate-300/80 bg-white/60 hover:border-[#0084FF] hover:bg-[#0084FF]/5 transition-all">
-                  <Upload className="h-7 w-7 text-[#0084FF] mb-1.5 animate-bounce" />
-                  <span className="text-xs font-semibold text-slate-800">
-                    点击选择本地图片或拖拽至此处上传
-                  </span>
-                  <span className="text-[11px] text-slate-500 mt-0.5">
-                    图片将作为视频的首帧画面 (支持 PNG, JPG, WebP)
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(e, "source")}
-                    className="hidden"
-                  />
+          <div className="video-studio-image-row grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="studio-panel studio-panel--compact">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <label className="flex items-center space-x-2 text-xs font-bold text-slate-900">
+                  <ImageIcon className="h-4 w-4 text-[#0084FF]" />
+                  <span>1. 上传起始帧图片 (First Frame)</span>
                 </label>
-                <div className="flex items-center space-x-2 bg-white/70 px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs">
-                  <span className="text-slate-400 text-[11px] font-medium flex-shrink-0">或输入 URL:</span>
-                  <input
-                    type="text"
-                    placeholder="粘贴网络图片地址 (https://...)"
-                    onChange={(e) => {
-                      const url = e.target.value.trim();
-                      if (url) {
-                        setImagePreview(url);
-                        setSourceImage(null);
-                      }
-                    }}
-                    className="w-full bg-transparent text-slate-800 placeholder-slate-400 outline-none text-xs"
-                  />
-                </div>
+                <span className="text-[11px] text-slate-500">支持 JPG / PNG / WebP, 最大 15MB</span>
               </div>
-            )}
 
-            {/* Optional End Frame Toggle */}
-            <div className="mt-4 pt-3 border-t border-slate-200/80">
-              <button
-                type="button"
-                onClick={() => setEnableLastFrame(!enableLastFrame)}
-                className="flex items-center space-x-2 text-xs text-[#0084FF] hover:underline font-medium"
-              >
-                <Layers className="h-3.5 w-3.5" />
-                <span>{enableLastFrame ? "取消设置尾帧图片" : "+ 添加结束帧图片 (可实现转场过渡)"}</span>
-              </button>
-
-              {enableLastFrame && (
-                <div className="mt-3">
-                  {lastFramePreview ? (
-                    <div className="relative aspect-video max-h-48 w-full overflow-hidden rounded-[20px] border border-slate-200/80 bg-slate-100">
-                      <img
-                        src={lastFramePreview}
-                        alt="Last frame"
-                        className="h-full w-full object-contain"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLastFrameImage(null);
-                          setLastFramePreview(null);
-                        }}
-                        className="absolute right-2 top-2 rounded-full bg-slate-900/80 p-1.5 text-slate-200 hover:text-rose-400 border border-white/20"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+              {imagePreview ? (
+                <div className="relative aspect-video max-h-64 w-full overflow-hidden rounded-[20px] border border-slate-200/80 bg-slate-100">
+                  {imageLoadError ? (
+                    <div className="flex h-full min-h-40 flex-col items-center justify-center px-6 text-center">
+                      <ImageIcon className="mb-2 h-8 w-8 text-rose-400" />
+                      <p className="text-xs font-semibold text-slate-700">图片地址已失效，暂时无法显示</p>
+                      <p className="mt-1 text-[11px] text-slate-500">请返回上一步重新生成，或重新上传一张图片</p>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center h-32 w-full cursor-pointer rounded-[20px] border border-dashed border-slate-300/80 bg-white/60 hover:border-[#0084FF] transition-all">
-                      <Upload className="h-5 w-5 text-slate-400 mb-1" />
-                      <span className="text-xs text-slate-600">上传结束帧图片</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleImageUpload(e, "lastFrame")}
-                        className="hidden"
-                      />
-                    </label>
+                    <img
+                      src={imagePreview}
+                      alt="Source"
+                      onClick={() => setPreviewImage(imagePreview)}
+                      onError={() => setImageLoadError(true)}
+                      className="h-full w-full cursor-zoom-in object-contain"
+                    />
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setPreviewImage(imagePreview)}
+                    title="放大查看图片"
+                    className="absolute bottom-3 left-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-900/75 text-white shadow-lg transition hover:bg-slate-900"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourceImage(null);
+                      setImagePreview(null);
+                      setImageLoadError(false);
+                    }}
+                    className="absolute right-3 top-3 rounded-full border border-white/20 bg-slate-900/80 p-2 text-slate-200 shadow-lg backdrop-blur-md transition-colors hover:text-rose-400"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="flex h-40 w-full cursor-pointer flex-col items-center justify-center rounded-[20px] border-2 border-dashed border-slate-300/80 bg-white/60 transition-all hover:border-[#0084FF] hover:bg-[#0084FF]/5">
+                    <Upload className="mb-1.5 h-7 w-7 animate-bounce text-[#0084FF]" />
+                    <span className="text-xs font-semibold text-slate-800">
+                      点击选择本地图片或拖拽至此处上传
+                    </span>
+                    <span className="mt-0.5 text-[11px] text-slate-500">
+                      图片将作为视频的首帧画面 (支持 PNG, JPG, WebP)
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <div className="flex items-center space-x-2 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-1.5 text-xs">
+                    <span className="flex-shrink-0 text-[11px] font-medium text-slate-400">或输入 URL:</span>
+                    <input
+                      type="text"
+                      placeholder="粘贴网络图片地址 (https://...)"
+                      onChange={(e) => {
+                        const url = e.target.value.trim();
+                        if (url) {
+                          setImagePreview(url);
+                          setSourceImage(null);
+                          setImageLoadError(false);
+                        }
+                      }}
+                      className="w-full bg-transparent text-xs text-slate-800 placeholder-slate-400 outline-none"
+                    />
+                  </div>
                 </div>
               )}
             </div>
+
           </div>
         )}
 
         {/* Prompt Input Box */}
-        <div className="home-glass-card-dark p-6 rounded-[24px]">
+        <div className="video-studio-prompt-panel studio-panel studio-panel--prompt">
           <div className="flex items-center justify-between mb-3">
-            <label className="flex items-center space-x-2 text-xs font-bold text-slate-900">
+            <label className="video-studio-section-title">
               <Sparkles className="h-4 w-4 text-[#0084FF]" />
               <span>视频分镜画面描述 (Prompt)</span>
             </label>
@@ -322,7 +461,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 type="button"
                 onClick={handleEnhancePrompt}
                 disabled={isEnhancing || !prompt.trim()}
-                className="flex items-center space-x-1.5 rounded-full border border-[#0084FF]/30 bg-[#0084FF]/10 px-3.5 py-1 text-xs font-semibold text-[#0084FF] hover:bg-[#0084FF]/20 transition-all disabled:opacity-40 active:scale-95"
+                className="video-studio-ghost-action"
               >
                 <Wand2 className={`h-3.5 w-3.5 ${isEnhancing ? "animate-spin" : ""}`} />
                 <span>{isEnhancing ? "智扩润色中..." : "AI 智能润色"}</span>
@@ -332,12 +471,70 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 <button
                   type="button"
                   onClick={() => setPrompt("")}
-                  className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
+                  className="video-studio-clear"
                 >
                   清空
                 </button>
               )}
             </div>
+          </div>
+
+          {videoTemplateOptions && onVideoTemplateChange && (
+            <div className="video-studio-template-picker">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-slate-800">选择视频版本</span>
+                <span className="text-[10px] text-slate-500">选择后自动更新提示词</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {videoTemplateOptions.map((template, index) => {
+                  const isSelected = selectedVideoTemplateId === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => onVideoTemplateChange(template.id)}
+                      className={`min-h-16 rounded-xl border px-3 py-2 text-left transition-all ${
+                        isSelected
+                          ? "border-[#0084FF] bg-[#0084FF]/10 text-[#0084FF]"
+                          : "border-slate-200 bg-white/70 text-slate-700 hover:border-[#0084FF]/50"
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                        <span>版本 {index + 1} · {template.label}</span>
+                        {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-slate-500">{template.goal}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="video-studio-language-row">
+            <label htmlFor="video-output-language" className="shrink-0 text-xs font-semibold text-slate-800">生成语言</label>
+            <select
+              id="video-output-language"
+              value={outputLanguage}
+              onChange={(event) => void handleOutputLanguageChange(event.target.value)}
+              disabled={isTranslatingPrompt}
+              className="home-glass-input min-w-0 flex-1 px-3 py-2 text-xs text-slate-900"
+            >
+              {VIDEO_OUTPUT_LANGUAGES.map((language) => (
+                <option key={language.id} value={language.id}>{language.label}</option>
+              ))}
+            </select>
+            {isTranslatingPrompt ? (
+              <span className="shrink-0 text-[11px] font-medium text-[#0084FF]">正在翻译提示词...</span>
+            ) : outputLanguage === "other" ? (
+              <input
+                value={customOutputLanguage}
+                onChange={(event) => setCustomOutputLanguage(event.target.value)}
+                placeholder="请输入语言名称"
+                className="home-glass-input min-w-0 flex-1 px-3 py-2 text-xs text-slate-900"
+              />
+            ) : null}
           </div>
 
           <textarea
@@ -349,7 +546,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 : "描述图片在视频中的运动轨迹或变化过程，例如：镜头向前平滑推近，主角微微转过头，光影随风变幻..."
             }
             rows={4}
-            className="home-glass-input w-full p-4 text-xs sm:text-sm text-slate-900 placeholder-slate-400 font-sans leading-relaxed resize-none"
+            className="video-studio-prompt-input"
           />
 
           <div className="mt-2 flex items-center justify-end text-[11px] text-slate-500">
@@ -358,28 +555,25 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
 
         {/* Aspect Ratio Selector */}
-        <div className="home-glass-card-dark p-6 rounded-[24px]">
-          <label className="block text-xs font-bold text-slate-900 mb-3">
+        <div className="video-studio-ratio-panel studio-panel">
+          <label className="video-studio-section-title mb-3">
             画面比例 (Aspect Ratio)
           </label>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3">
             {[
-              { ratio: "16:9", label: "16:9 宽屏大片", sub: "横屏 / YouTube" },
-              { ratio: "9:16", label: "9:16 抖音短视频", sub: "竖屏 / TikTok" },
-              { ratio: "1:1", label: "1:1 正方形", sub: "社交媒体" },
-              { ratio: "4:3", label: "4:3 复古经典", sub: "传统显示" },
-              { ratio: "21:9", label: "21:9 宽银幕", sub: "电影极客" },
+              { ratio: "16:9", label: "横屏视频" },
+              { ratio: "9:16", label: "竖屏视频" },
             ].map((item) => {
               const isSelected = aspectRatio === item.ratio;
               return (
                 <button
                   key={item.ratio}
                   type="button"
-                  onClick={() => setAspectRatio(item.ratio as AspectRatio)}
-                  className={`flex flex-col items-center justify-center rounded-[16px] border p-3.5 transition-all duration-200 ${
+                  onClick={() => setAspectRatio(item.ratio as VideoAspectRatio)}
+                    className={`video-studio-ratio ${
                     isSelected
-                      ? "border-[#0084FF] bg-[#0084FF]/10 text-slate-900 font-bold shadow-md shadow-[#0084FF]/15 scale-105"
-                      : "border-slate-200/80 bg-white/60 text-slate-700 hover:border-slate-300 hover:bg-white"
+                        ? "video-studio-ratio--active"
+                        : ""
                   }`}
                 >
                   <span className="font-mono font-bold text-xs text-[#0084FF]">{item.ratio}</span>
@@ -391,10 +585,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
 
         {/* Camera Motion & Specs Row */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="video-studio-settings-row grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Camera Motion */}
-          <div className="home-glass-card-dark p-6 rounded-[24px]">
-            <label className="flex items-center space-x-1.5 text-xs font-bold text-slate-900 mb-3">
+          <div className="studio-panel">
+            <label className="video-studio-section-title mb-3">
               <Camera className="h-4 w-4 text-[#0084FF]" />
               <span>运镜轨迹指示 (Camera Motion)</span>
             </label>
@@ -412,8 +606,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </div>
 
           {/* Specs: Resolution & Duration */}
-          <div className="home-glass-card-dark p-6 rounded-[24px]">
-            <label className="flex items-center space-x-1.5 text-xs font-bold text-slate-900 mb-3">
+          <div className="studio-panel">
+            <label className="video-studio-section-title mb-3">
               <Clock className="h-4 w-4 text-[#0084FF]" />
               <span>分辨率与视频时长</span>
             </label>
@@ -435,30 +629,30 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setResolution("1080p")}
+                    onClick={() => setResolution("480p")}
                     className={`px-3 py-1 rounded-full text-xs font-bold font-mono transition-all ${
-                      resolution === "1080p"
+                      resolution === "480p"
                         ? "bg-[#0084FF] text-white shadow-sm"
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
-                    1080p
+                    480p
                   </button>
                 </div>
               </div>
 
               <div>
                 <span className="block text-[11px] text-slate-600 font-medium mb-1.5">生成时长 (秒)</span>
-                <div className="grid grid-cols-5 gap-1.5 p-1 rounded-full bg-slate-100 border border-slate-200/80">
-                  {[5, 8, 10, 12, 15].map((s) => (
+                <div className="video-studio-duration-options">
+                  {[8, 10, 12, 15].map((s) => (
                     <button
                       key={s}
                       type="button"
                       onClick={() => setDuration(s)}
-                      className={`rounded-full py-1 text-xs font-bold font-mono transition-all ${
+                      className={`video-studio-duration-option ${
                         duration === s
-                          ? "bg-[#0084FF] text-white shadow-sm"
-                          : "text-slate-600 hover:text-slate-900"
+                          ? "video-studio-duration-option--active"
+                          : ""
                       }`}
                     >
                       {s}s
@@ -471,15 +665,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
 
         {/* Advanced Parameters Accordion */}
-        <div className="home-glass-card-dark p-6 rounded-[24px]">
+        <div className="video-studio-advanced-panel studio-panel">
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center justify-between w-full text-xs font-semibold text-slate-800"
+            className="video-studio-advanced-toggle"
           >
             <div className="flex items-center space-x-2">
               <Sliders className="h-4 w-4 text-[#0084FF]" />
-              <span>高级渲染参数 (Negative Prompt & Model Customization)</span>
+              <span>高级参数</span>
             </div>
             {showAdvanced ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
           </button>
@@ -487,9 +681,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           {showAdvanced && (
             <div className="mt-4 space-y-4 border-t border-slate-200/80 pt-4">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
-                  反向提示词 (Negative Prompt)
-                </label>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label className="block text-[11px] font-semibold text-slate-700">
+                    反向提示词 (Negative Prompt)
+                  </label>
+                  {isAnalyzingReference && <span className="text-[11px] text-[#0084FF]">AI 正在识别参考图...</span>}
+                </div>
                 <input
                   type="text"
                   value={negativePrompt}
@@ -503,11 +700,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
 
         {/* Primary Action Button Bar */}
-        <div className="pt-2">
+        <div className="video-studio-action-panel pt-2">
           <button
             type="submit"
             disabled={isSubmitting}
-            className="home-glass-button w-full py-4 px-6 text-base shadow-xl flex items-center justify-center space-x-2 disabled:opacity-50"
+            className="video-studio-submit disabled:opacity-50"
           >
             <Play className="h-5 w-5 fill-white text-white" />
             <span>
@@ -520,23 +717,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </button>
 
           {/* Status Note & Quick Model Switcher */}
-          {(() => {
-            const currentProviderObj = DEFAULT_PRESET_PROVIDERS.find((p) => p.id === apiConfig.provider) || DEFAULT_PRESET_PROVIDERS[0];
-            const availableModels = currentProviderObj ? currentProviderObj.models : ["grok-imagine-video-special"];
-            const currentModel = apiConfig.selectedModel || "grok-imagine-video-special";
-
-            return (
-              <div className="mt-3 flex items-center justify-center space-x-2 text-xs text-slate-600">
-                <span className="flex items-center space-x-1">
-                  <Cpu className="h-3.5 w-3.5 text-[#0084FF]" />
-                  <span>选定渲染模型:</span>
+          {false && (() => (
+              <div className="video-studio-model-row">
+                <span className="flex items-center gap-1.5">
+                  <Cpu className="h-3.5 w-3.5 text-[#1477d4]" />
+                  <span>当前模型</span>
                 </span>
 
                 {onUpdateApiConfig ? (
                   <select
                     value={currentModel}
                     onChange={(e) => onUpdateApiConfig({ selectedModel: e.target.value })}
-                    className="bg-white/90 border border-slate-200/90 text-[#0084FF] font-mono font-bold text-xs rounded-xl px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-[#0084FF]/30 cursor-pointer shadow-sm transition-all"
+                    className="video-studio-model-select"
                   >
                     {availableModels.map((m) => (
                       <option key={m} value={m} className="text-slate-900 font-sans">
@@ -545,21 +737,46 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     ))}
                   </select>
                 ) : (
-                  <strong className="text-[#0084FF] font-mono">{currentModel}</strong>
+                  <strong className="video-studio-model-name">{currentModel}</strong>
                 )}
 
                 <button
                   type="button"
-                  onClick={onOpenApiConfig}
-                  className="ml-1 text-[11px] text-slate-400 hover:text-[#0084FF] underline transition-colors cursor-pointer"
+                  onClick={() => undefined}
+                  className="hidden ml-1 text-[11px] text-slate-400 hover:text-[#0084FF] underline transition-colors cursor-pointer"
                 >
                   高级配置
                 </button>
               </div>
-            );
-          })()}
+          ))()}
         </div>
       </form>
+
+      {previewImage && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="首帧图片预览"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            type="button"
+            aria-label="关闭图片预览"
+            title="关闭"
+            onClick={() => setPreviewImage(null)}
+            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={previewImage}
+            alt="放大后的首帧图片"
+            onClick={(event) => event.stopPropagation()}
+            className="max-h-[90vh] max-w-[min(92vw,1100px)] object-contain"
+          />
+        </div>
+      )}
 
       {/* AI Prompt Writer Assistant Modal */}
       <AiPromptWriterModal

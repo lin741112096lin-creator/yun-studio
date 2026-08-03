@@ -1,19 +1,24 @@
 import React, { useState } from "react";
-import { Image as ImageIcon, Sparkles, RefreshCw, Download, Trash2, Settings, Wand2, Maximize2, X, Upload, Layers } from "lucide-react";
-import { ApiEndpointConfig, ImageTask, ImageAspectRatio } from "../types";
-import { fetchJson } from "../lib/api";
+import { Sparkles, RefreshCw, Maximize2, X, Upload, Wand2 } from "lucide-react";
+import { ApiEndpointConfig, ImageTask, ImageAspectRatio, TaskSource } from "../types";
+import { fetchJson, normalizeImageUrl } from "../lib/api";
+import { analyzeReferenceImage, appendNegativePrompt } from "../lib/referenceImage";
+import { AiPromptWriterModal } from "./AiPromptWriterModal";
 
 interface ImageStudioProps {
   imageConfig: ApiEndpointConfig;
   chatConfig?: ApiEndpointConfig;
-  onOpenApiConfig: () => void;
-  onOpenTemplates?: () => void;
+  onImageGenerated?: (task: ImageTask) => void;
   tasks: ImageTask[];
   onSaveTasks: (tasks: ImageTask[]) => void;
+  taskSource?: TaskSource;
+  showAiWriter?: boolean;
   prefilledPrompt?: {
     prompt: string;
     style?: string;
     aspectRatio?: string;
+    referenceImage?: string;
+    negativePrompt?: string;
   } | null;
 }
 
@@ -38,10 +43,11 @@ const IMAGE_STYLE_PRESETS = [
 export const ImageStudio: React.FC<ImageStudioProps> = ({
   imageConfig,
   chatConfig,
-  onOpenApiConfig,
-  onOpenTemplates,
+  onImageGenerated,
   tasks,
   onSaveTasks,
+  taskSource = "standalone-image" as TaskSource,
+  showAiWriter = true,
   prefilledPrompt,
 }) => {
   const [prompt, setPrompt] = useState<string>("");
@@ -51,9 +57,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isEnhancing, setIsEnhancing] = useState<boolean>(false);
-  const [previewTask, setPreviewTask] = useState<ImageTask | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isAnalyzingReference, setIsAnalyzingReference] = useState<boolean>(false);
+  const [referencePreview, setReferencePreview] = useState<string | null>(null);
+  const [isAiWriterOpen, setIsAiWriterOpen] = useState(false);
 
   React.useEffect(() => {
     if (prefilledPrompt) {
@@ -63,34 +69,40 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         const match = IMAGE_ASPECT_RATIOS.find((r) => r.id === prefilledPrompt.aspectRatio);
         if (match) setAspectRatio(match.id);
       }
+      if (prefilledPrompt.referenceImage) setReferenceImage(prefilledPrompt.referenceImage);
+      if (prefilledPrompt.negativePrompt) setNegativePrompt(prefilledPrompt.negativePrompt);
     }
-  }, [prefilledPrompt]);
+  }, [
+    prefilledPrompt?.prompt,
+    prefilledPrompt?.style,
+    prefilledPrompt?.aspectRatio,
+    prefilledPrompt?.referenceImage,
+    prefilledPrompt?.negativePrompt,
+  ]);
 
-  // Handle AI Prompt Polish / Enhance
-  const handleEnhancePrompt = async () => {
-    if (!prompt.trim() || isEnhancing) return;
-    setIsEnhancing(true);
-    try {
-      const data = await fetchJson<{ enhancedPrompt?: string }>("/api/enhance-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          style: selectedStyle,
-          type: "image",
-          apiKey: imageConfig?.apiKey,
-          chatConfig,
-        }),
-      });
-      if (data.enhancedPrompt) {
-        setPrompt(data.enhancedPrompt);
-      }
-    } catch (err) {
-      console.error("Failed to enhance prompt:", err);
-    } finally {
-      setIsEnhancing(false);
+  React.useEffect(() => {
+    if (!referenceImage || !chatConfig?.apiKey) {
+      setIsAnalyzingReference(false);
+      return;
     }
-  };
+    let cancelled = false;
+    setIsAnalyzingReference(true);
+    analyzeReferenceImage(referenceImage, chatConfig, "image")
+      .then((generatedNegativePrompt) => {
+        if (!cancelled && generatedNegativePrompt) {
+          setNegativePrompt((current) => appendNegativePrompt(current, generatedNegativePrompt));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("Reference image analysis failed:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsAnalyzingReference(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceImage, chatConfig]);
 
   // Submit Image Generation
   const handleGenerateImage = async () => {
@@ -112,6 +124,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
       status: "processing",
       createdAt: Date.now(),
       referenceImage: referenceImage || undefined,
+      source: taskSource,
     };
 
     onSaveTasks([newTask, ...tasks]);
@@ -131,16 +144,21 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           model: imageConfig.selectedModel,
           referenceImage: referenceImage || undefined,
         }),
-      });
+      }, 180000);
+
+      const imageUrl = normalizeImageUrl(data.imageUrl);
+      if (!imageUrl) {
+        throw new Error("图像接口已返回，但没有找到可显示的图片数据或图片地址");
+      }
 
       const completedTask: ImageTask = {
         ...newTask,
         status: "completed",
-        imageUrl: data.imageUrl,
+        imageUrl,
       };
 
       onSaveTasks([completedTask, ...tasks.filter((t) => t.id !== taskId)]);
-      setPreviewTask(completedTask);
+      onImageGenerated?.(completedTask);
     } catch (err: any) {
       const failedTask: ImageTask = {
         ...newTask,
@@ -152,19 +170,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    onSaveTasks(tasks.filter((t) => t.id !== taskId));
-    if (previewTask?.id === taskId) {
-      setPreviewTask(null);
-    }
-  };
-
-  const handleCopyPrompt = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,38 +184,24 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Main Studio Grid: Left Controls + Right Gallery */}
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        {/* Left Controls Panel */}
-        <div className="lg:col-span-5 space-y-5 home-glass-card-dark p-6 rounded-[24px] shadow-xl">
+    <div className="image-studio-shell image-studio-shell--standalone">
+      <div className="image-studio-form">
           {/* Main Prompt Area */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
+          <div className="image-studio-prompt-panel image-studio-panel">
+            <div className="mb-2 flex items-center justify-between gap-3">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-900">
                 画面生成提示词 (Prompt)
               </label>
-              <div className="flex items-center space-x-2.5">
-                {onOpenTemplates && (
-                  <button
-                    type="button"
-                    onClick={onOpenTemplates}
-                    className="flex items-center space-x-1 text-[11px] font-semibold text-purple-600 hover:underline transition-colors cursor-pointer"
-                  >
-                    <Sparkles className="h-3 w-3 text-amber-500" />
-                    <span>灵感词库</span>
-                  </button>
-                )}
+              {showAiWriter && (
                 <button
                   type="button"
-                  onClick={handleEnhancePrompt}
-                  disabled={!prompt.trim() || isEnhancing}
-                  className="flex items-center space-x-1 text-[11px] font-semibold text-[#0084FF] hover:underline disabled:opacity-50 transition-colors cursor-pointer"
+                  onClick={() => setIsAiWriterOpen(true)}
+                  className="image-studio-ai-write"
                 >
-                  <Wand2 className={`h-3 w-3 ${isEnhancing ? "animate-spin" : ""}`} />
-                  <span>{isEnhancing ? "智能润色中..." : "AI 智能扩充润色"}</span>
+                  <Wand2 className="h-3.5 w-3.5" />
+                  <span>AI 帮写</span>
                 </button>
-              </div>
+              )}
             </div>
 
             <textarea
@@ -223,7 +214,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </div>
 
           {/* Reference Image Upload (Optional) */}
-          <div>
+          <div className="image-studio-reference-panel image-studio-panel">
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-slate-800">
                 参考图 / 图生图 (可选)
@@ -239,14 +230,25 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               )}
             </div>
             {referenceImage ? (
-              <div className="relative h-24 w-full rounded-[16px] overflow-hidden border border-slate-200/80 bg-slate-100">
-                <img src={referenceImage} alt="Reference" className="h-full w-full object-cover" />
+              <div className="relative h-56 w-full overflow-hidden rounded-[16px] border border-slate-200/80 bg-slate-100 p-2 sm:h-64">
+                <button
+                  type="button"
+                  onClick={() => setReferencePreview(referenceImage)}
+                  title="放大查看参考图"
+                  aria-label="放大查看参考图"
+                  className="group relative h-full w-full cursor-zoom-in rounded-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0f766e] focus-visible:ring-offset-2"
+                >
+                  <img src={referenceImage} alt="参考图，点击放大查看" className="h-full w-full object-contain" />
+                  <span className="pointer-events-none absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/65 text-white opacity-80 shadow-sm transition group-hover:bg-[#0f766e]/90 group-hover:opacity-100">
+                    <Maximize2 className="h-4 w-4" />
+                  </span>
+                </button>
               </div>
             ) : (
               <div className="space-y-2">
                 <label className="flex h-16 w-full cursor-pointer flex-col items-center justify-center rounded-[16px] border border-dashed border-slate-300/80 bg-white/60 hover:border-[#0084FF] transition-colors">
                   <div className="flex items-center space-x-2 text-xs text-slate-700">
-                    <Upload className="h-4 w-4 text-[#0084FF]" />
+                    <Upload className="h-4 w-4 text-[#0f766e]" />
                     <span className="font-medium">点击上传本地参考图 (PNG / JPG / WebP)</span>
                   </div>
                   <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
@@ -267,31 +269,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             )}
           </div>
 
-          {/* Style Presets Picker */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-900 mb-2">
-              选取艺术风格
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {IMAGE_STYLE_PRESETS.map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => setSelectedStyle(st.id)}
-                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all ${
-                    selectedStyle === st.id
-                      ? "border-[#0084FF] bg-[#0084FF]/10 text-slate-900 font-bold shadow-md shadow-[#0084FF]/15 scale-105"
-                      : "border-slate-200/80 bg-white/60 text-slate-700 hover:border-slate-300 hover:text-slate-900 hover:bg-white"
-                  }`}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Aspect Ratio Picker */}
-          <div>
+          <div className="image-studio-ratio-panel image-studio-panel">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-900 mb-2">
               画幅比例 (Aspect Ratio)
             </label>
@@ -301,13 +280,13 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   key={ar.id}
                   type="button"
                   onClick={() => setAspectRatio(ar.id)}
-                  className={`flex flex-col items-start rounded-[16px] border p-3 text-left transition-all ${
-                    aspectRatio === ar.id
-                      ? "border-[#0084FF] bg-[#0084FF]/10 text-slate-900 font-bold shadow-md shadow-[#0084FF]/15 scale-105"
+                  className={`image-studio-ratio-card flex flex-col items-start rounded-[16px] border p-3 text-left transition-all ${
+                      aspectRatio === ar.id
+                      ? "image-studio-ratio-card--active border-[#0f766e] bg-[#0f766e]/10 text-slate-900 font-bold shadow-md shadow-[#0f766e]/15 scale-105"
                       : "border-slate-200/80 bg-white/60 text-slate-700 hover:border-slate-300 hover:text-slate-900"
                   }`}
                 >
-                  <span className="text-xs font-bold text-[#0084FF]">{ar.icon} {ar.label}</span>
+                  <span className="text-xs font-bold text-[#0f766e]">{ar.icon} {ar.label}</span>
                   <span className="text-[10px] text-slate-500 mt-0.5">{ar.desc}</span>
                 </button>
               ))}
@@ -315,10 +294,13 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </div>
 
           {/* Negative Prompt */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-              反向提示词 (Negative Prompt - 排除元素)
-            </label>
+          <div className="image-studio-negative-panel image-studio-panel">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label className="block text-xs font-semibold text-slate-800">
+                反向提示词 (Negative Prompt - 排除元素)
+              </label>
+              {isAnalyzingReference && <span className="text-[11px] text-[#0f766e]">AI 正在识别参考图...</span>}
+            </div>
             <input
               type="text"
               value={negativePrompt}
@@ -333,7 +315,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             type="button"
             onClick={handleGenerateImage}
             disabled={!prompt.trim() || isGenerating}
-            className="home-glass-button w-full py-4 text-sm shadow-xl flex items-center justify-center space-x-2 disabled:opacity-50"
+            className="image-studio-submit w-full py-4 text-sm shadow-xl flex items-center justify-center space-x-2 disabled:opacity-50"
           >
             {isGenerating ? (
               <>
@@ -349,157 +331,40 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </button>
         </div>
 
-        {/* Right Gallery / Showcase Panel */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
-            <div className="flex items-center space-x-2">
-              <Layers className="h-4 w-4 text-[#0084FF]" />
-              <h3 className="font-bold text-sm text-slate-900">作品画廊与历史创作 ({tasks.length})</h3>
-            </div>
-            {tasks.length > 0 && (
-              <button
-                onClick={() => onSaveTasks([])}
-                className="text-xs text-slate-500 hover:text-rose-600 transition-colors"
-              >
-                清空作品
-              </button>
-            )}
-          </div>
+      {showAiWriter && (
+        <AiPromptWriterModal
+          isOpen={isAiWriterOpen}
+          onClose={() => setIsAiWriterOpen(false)}
+          apiConfig={imageConfig}
+          chatConfig={chatConfig}
+          promptType="image"
+          onApplyPrompt={(generated) => setPrompt(generated)}
+        />
+      )}
 
-          {tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300/80 bg-white/60 py-16 text-center shadow-sm">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0084FF]/10 text-[#0084FF] mb-3 border border-[#0084FF]/20">
-                <ImageIcon className="h-6 w-6" />
-              </div>
-              <p className="text-sm font-semibold text-slate-800">暂无生成的图像作品</p>
-              <p className="mt-1 text-xs text-slate-500 max-w-xs">
-                在左侧输入提示词，选取理想的艺术风格与画幅比例，即刻体验 AI 画作生成！
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {tasks.map((task) => {
-                const isDone = task.status === "completed" && Boolean(task.imageUrl);
-                return (
-                  <div
-                    key={task.id}
-                    className="group relative flex flex-col ios-glass-card overflow-hidden shadow-md transition-all hover:border-[#0084FF]/40 border border-slate-200/80 bg-white/80"
-                  >
-                    {/* Image Container */}
-                    <div className="relative aspect-square w-full bg-slate-100 overflow-hidden flex items-center justify-center">
-                      {isDone ? (
-                        <>
-                          <img
-                            src={task.imageUrl}
-                            alt={task.prompt}
-                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                          {/* Hover Overlay Actions */}
-                          <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
-                            <button
-                              onClick={() => setPreviewTask(task)}
-                              className="rounded-full bg-white/20 p-2.5 text-white hover:bg-white/30 backdrop-blur-md"
-                              title="全屏查看"
-                            >
-                              <Maximize2 className="h-4 w-4" />
-                            </button>
-                            {task.imageUrl && (
-                              <a
-                                href={task.imageUrl}
-                                download={`ai_image_${task.id}.jpg`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-full bg-white/20 p-2.5 text-white hover:bg-white/30 backdrop-blur-md"
-                                title="下载大图"
-                              >
-                                <Download className="h-4 w-4" />
-                              </a>
-                            )}
-                          </div>
-                        </>
-                      ) : task.status === "processing" ? (
-                        <div className="flex flex-col items-center p-4 text-center">
-                          <RefreshCw className="h-8 w-8 text-[#0084FF] animate-spin mb-2" />
-                          <span className="text-xs font-medium text-[#0084FF]">高质计算渲染中...</span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center p-4 text-center text-rose-500 text-xs">
-                          <span>生成失败</span>
-                          <span className="text-[10px] text-slate-500 mt-1">{task.error}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Card Footer Details */}
-                    <div className="p-3 bg-slate-50/90 border-t border-slate-200/80">
-                      <p className="line-clamp-2 text-xs font-medium text-slate-800">
-                        {task.prompt}
-                      </p>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                        <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-slate-700 font-mono font-medium">
-                          {task.aspectRatio}
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleCopyPrompt(task.prompt, task.id)}
-                            className="hover:text-slate-900 transition-colors"
-                          >
-                            {copiedId === task.id ? "已复制" : "复制词"}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="hover:text-rose-500 transition-colors"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Lightbox Fullscreen Preview Modal */}
-      {previewTask && previewTask.imageUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
-          <div className="relative max-w-4xl w-full ios-glass-card p-5 shadow-2xl overflow-hidden border border-white/20">
-            {/* iOS Modal Drag Handle */}
-            <div className="w-9 h-1 rounded-full bg-zinc-600/60 mx-auto mb-3" />
-
-            <button
-              onClick={() => setPreviewTask(null)}
-              className="absolute top-4 right-4 z-10 rounded-full bg-black/70 p-2 text-zinc-300 hover:text-white border border-white/10"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="max-h-[70vh] w-full flex items-center justify-center overflow-hidden rounded-2xl bg-black">
-              <img
-                src={previewTask.imageUrl}
-                alt={previewTask.prompt}
-                className="max-h-[70vh] w-auto object-contain"
-              />
-            </div>
-            <div className="mt-4 space-y-2">
-              <p className="text-sm font-semibold text-white">{previewTask.prompt}</p>
-              <div className="flex items-center justify-between text-xs text-zinc-400">
-                <span>比例: {previewTask.aspectRatio} | 风格: {previewTask.style || "默认"} | 模型: {previewTask.model}</span>
-                <a
-                  href={previewTask.imageUrl}
-                  download={`ai_image_${previewTask.id}.jpg`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ios-blue-button px-5 py-2 flex items-center space-x-1.5 font-bold text-white shadow-lg"
-                >
-                  <Download className="h-4 w-4" />
-                  <span>下载高清大图</span>
-                </a>
-              </div>
-            </div>
-          </div>
+      {referencePreview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="参考图预览"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setReferencePreview(null)}
+        >
+          <button
+            type="button"
+            aria-label="关闭参考图预览"
+            title="关闭"
+            onClick={() => setReferencePreview(null)}
+            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={referencePreview}
+            alt="放大后的参考图"
+            onClick={(event) => event.stopPropagation()}
+            className="max-h-[90vh] max-w-[min(92vw,1100px)] object-contain"
+          />
         </div>
       )}
     </div>

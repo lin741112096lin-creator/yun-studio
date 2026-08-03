@@ -26,7 +26,7 @@ import {
   ExternalLink,
   Sliders,
 } from "lucide-react";
-import { apiUrl } from "../lib/api";
+import { apiUrl, authHeaders } from "../lib/api";
 
 interface TaskManagerProps {
   tasks: VideoTask[];
@@ -100,10 +100,10 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
 
       const res = await fetch(apiUrl("/api/video-download"), {
         method: "POST",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
           "x-api-key": apiConfig.apiKey || "",
-        },
+        }),
         body: JSON.stringify({
           videoUrl: task.videoUrl || "",
           operationName: task.operationName || "",
@@ -168,7 +168,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
     try {
       const res = await fetch(apiUrl("/api/video-status"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           operationName: task.operationName,
           provider: task.provider,
@@ -297,9 +297,9 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
   });
 
   return (
-    <div className="space-y-6">
+    <div className="task-manager-shell space-y-6">
       {/* Top Header & Overview */}
-      <div className="home-glass-card-dark flex flex-col justify-between gap-4 p-6 sm:flex-row sm:items-center rounded-[24px] shadow-md border border-slate-200/80 bg-white/80">
+      <div className="hidden home-glass-card-dark flex flex-col justify-between gap-4 p-6 sm:flex-row sm:items-center rounded-[24px] shadow-md border border-slate-200/80 bg-white/80">
         <div>
           <div className="flex items-center space-x-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0084FF] to-indigo-600 text-white shadow-lg shadow-[#0084FF]/25">
@@ -339,9 +339,9 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
       </div>
 
       {/* Metrics Summary Cards */}
-      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
+      <div className="task-metrics-grid grid grid-cols-2 gap-3.5 sm:grid-cols-4">
         {/* Total Stats */}
-        <div className="home-glass-card-dark p-5 rounded-[20px] bg-white/90">
+        <div className="task-metric-card task-metric-card--total home-glass-card-dark p-5 rounded-[20px] bg-white/90">
           <div className="text-[11px] font-medium text-slate-500 flex items-center justify-between">
             <span>全部创作资产</span>
             <Layers className="h-3.5 w-3.5 text-slate-400" />
@@ -355,13 +355,13 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
 
         {/* Video Stats */}
-        <div className="home-glass-card-dark p-5 rounded-[20px] border border-[#0084FF]/20 bg-[#0084FF]/5">
-          <div className="text-[11px] font-medium text-[#0084FF] flex items-center justify-between">
+        <div className="task-metric-card task-metric-card--video home-glass-card-dark p-5 rounded-[20px] border border-[#0084FF]/20 bg-[#0084FF]/5">
+          <div className="text-[11px] font-medium text-[#b4533d] flex items-center justify-between">
             <span>🎬 视频作品库</span>
-            <Film className="h-3.5 w-3.5 text-[#0084FF]" />
+            <Film className="h-3.5 w-3.5 text-[#b4533d]" />
           </div>
           <div className="mt-1 flex items-baseline space-x-2">
-            <span className="text-2xl font-bold text-[#0084FF] font-mono">{tasks.length}</span>
+            <span className="text-2xl font-bold text-[#b4533d] font-mono">{tasks.length}</span>
             <span className="text-[10px] text-slate-500">
               (完成 {videoCompletedCount})
             </span>
@@ -369,13 +369,13 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
 
         {/* Image Stats */}
-        <div className="home-glass-card-dark p-5 rounded-[20px] border border-purple-500/20 bg-purple-500/5">
-          <div className="text-[11px] font-medium text-purple-600 flex items-center justify-between">
+        <div className="task-metric-card task-metric-card--image home-glass-card-dark p-5 rounded-[20px] border border-purple-500/20 bg-purple-500/5">
+          <div className="text-[11px] font-medium text-[#c7564b] flex items-center justify-between">
             <span>🎨 图像作品库</span>
-            <ImageIcon className="h-3.5 w-3.5 text-purple-600" />
+            <ImageIcon className="h-3.5 w-3.5 text-[#c7564b]" />
           </div>
           <div className="mt-1 flex items-baseline space-x-2">
-            <span className="text-2xl font-bold text-purple-600 font-mono">{imageTasks.length}</span>
+            <span className="text-2xl font-bold text-[#c7564b] font-mono">{imageTasks.length}</span>
             <span className="text-[10px] text-slate-500">
               (完成 {imageCompletedCount})
             </span>
@@ -383,11 +383,11 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
 
         {/* Processing / Failed Stats */}
-        <div className="home-glass-card-dark p-5 rounded-[20px]">
+        <div className="task-metric-card task-metric-card--status home-glass-card-dark p-5 rounded-[20px]">
           <div className="text-[11px] font-medium text-slate-500 flex items-center justify-between">
             <span>实时计算与监控</span>
             {totalProcessing > 0 ? (
-              <Loader2 className="h-3.5 w-3.5 text-[#0084FF] animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 text-[#b4533d] animate-spin" />
             ) : (
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
             )}
@@ -402,7 +402,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
       </div>
 
       {/* Filters & Search Bar Toolbar */}
-      <div className="home-glass-card-dark flex flex-col justify-between gap-3 p-3.5 lg:flex-row lg:items-center rounded-[20px]">
+      <div className="task-library-toolbar home-glass-card-dark flex flex-col justify-between gap-3 p-3.5 lg:flex-row lg:items-center rounded-[20px]">
         {/* Media & Status Category Tabs */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Media Category Pill Group */}
@@ -421,7 +421,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
               onClick={() => setMediaCategory("video")}
               className={`rounded-full px-3.5 py-1.5 transition-all flex items-center space-x-1 ${
                 mediaCategory === "video"
-                  ? "bg-[#0084FF] text-white font-bold shadow-sm"
+                  ? "bg-[#b4533d] text-white font-bold shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -432,7 +432,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
               onClick={() => setMediaCategory("image")}
               className={`rounded-full px-3.5 py-1.5 transition-all flex items-center space-x-1 ${
                 mediaCategory === "image"
-                  ? "bg-purple-600 text-white font-bold shadow-sm"
+                  ? "bg-[#71815b] text-white font-bold shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -460,13 +460,13 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
               onClick={() => setFilterStatus("processing")}
               className={`rounded-full px-3 py-1 transition-all flex items-center space-x-1 ${
                 filterStatus === "processing"
-                  ? "bg-white text-[#0084FF] font-semibold shadow-xs"
+                  ? "bg-white text-[#b4533d] font-semibold shadow-xs"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <span>生成中</span>
               {totalProcessing > 0 && (
-                <span className="rounded-full bg-[#0084FF]/10 px-1.5 py-0.2 text-[10px] text-[#0084FF] font-mono">
+                <span className="rounded-full bg-[#b4533d]/10 px-1.5 py-0.2 text-[10px] text-[#b4533d] font-mono">
                   {totalProcessing}
                 </span>
               )}
@@ -545,23 +545,9 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
           <p className="text-xs text-slate-500 mt-1 max-w-sm">
             尝试更改筛选或搜索项，或者通过左侧控制面板发起新的 AI 创作。
           </p>
-          <div className="mt-4 flex items-center space-x-3">
-            <button
-              onClick={() => onStartCreate("video")}
-              className="home-glass-button px-4 py-2 text-xs shadow-md"
-            >
-              生成视频
-            </button>
-            <button
-              onClick={() => onStartCreate("image")}
-              className="px-4 py-2 rounded-full bg-purple-600 text-white text-xs font-medium shadow-md hover:bg-purple-700 transition-colors"
-            >
-              创作图像
-            </button>
-          </div>
         </div>
       ) : (
-        <div className="space-y-3.5">
+        <div className="task-list space-y-3.5">
           {filteredItems.map((item) => {
             const isVideo = item.mediaType === "video";
             const videoTask = item.videoTask;
@@ -574,7 +560,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
             return (
               <div
                 key={item.id}
-                className="group relative home-glass-card-dark p-4 sm:p-5 transition-all hover:border-[#0084FF]/40 rounded-[20px] shadow-sm bg-white/90"
+                className="task-library-card group relative home-glass-card-dark p-4 sm:p-5 transition-all hover:border-[#0084FF]/40 rounded-[20px] shadow-sm bg-white/90"
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   {/* Left: Media Thumbnail & Info */}
@@ -588,7 +574,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                         }
                       }}
                       className={`relative h-20 w-32 flex-shrink-0 overflow-hidden rounded-[16px] bg-slate-900 border border-slate-200/80 transition-all ${
-                        isCompleted ? "cursor-pointer group-hover:border-[#0084FF] group-hover:shadow-md" : ""
+                        isCompleted ? "cursor-pointer group-hover:border-[#b4533d] group-hover:shadow-md" : ""
                       }`}
                     >
                       {isVideo ? (
@@ -601,7 +587,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                         ) : (
                           <div className="flex h-full w-full flex-col items-center justify-center text-slate-400 bg-slate-900">
                             {isProcessing ? (
-                              <Loader2 className="h-6 w-6 text-[#0084FF] animate-spin" />
+                              <Loader2 className="h-6 w-6 text-[#b4533d] animate-spin" />
                             ) : (
                               <Film className="h-6 w-6 text-slate-500" />
                             )}
@@ -621,7 +607,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                         ) : (
                           <div className="flex h-full w-full flex-col items-center justify-center text-slate-400 bg-slate-900">
                             {isProcessing ? (
-                              <Loader2 className="h-6 w-6 text-purple-500 animate-spin" />
+                              <Loader2 className="h-6 w-6 text-[#71815b] animate-spin" />
                             ) : (
                               <ImageIcon className="h-6 w-6 text-slate-500" />
                             )}
@@ -649,12 +635,12 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                       <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         {/* Type Badge */}
                         {isVideo ? (
-                          <span className="inline-flex items-center space-x-1 rounded-full bg-[#0084FF]/10 px-2.5 py-0.5 text-[10px] font-bold text-[#0084FF] border border-[#0084FF]/30">
+                          <span className="inline-flex items-center space-x-1 rounded-full bg-[#b4533d]/10 px-2.5 py-0.5 text-[10px] font-bold text-[#b4533d] border border-[#b4533d]/30">
                             <Film className="h-3 w-3" />
                             <span>AI 视频</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center space-x-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
+                          <span className="inline-flex items-center space-x-1 rounded-full bg-[#f1f5ec] px-2.5 py-0.5 text-[10px] font-bold text-[#71815b] border border-[#d4dfc9]">
                             <ImageIcon className="h-3 w-3" />
                             <span>AI 图像</span>
                           </span>
@@ -721,7 +707,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                           </>
                         ) : (
                           <>
-                            <span className="rounded-full bg-purple-50 px-2 py-0.5 border border-purple-200 text-purple-700 font-medium">
+                            <span className="rounded-full bg-[#f1f5ec] px-2 py-0.5 border border-[#d4dfc9] text-[#71815b] font-medium">
                               画幅 {imageTask?.aspectRatio}
                             </span>
                             {imageTask?.style && (
@@ -730,7 +716,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                               </span>
                             )}
                             {imageTask?.referenceImage && (
-                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 border border-indigo-200 text-indigo-700 font-sans">
+                              <span className="rounded-full bg-[#f1f5ec] px-2 py-0.5 border border-[#d4dfc9] text-[#71815b] font-sans">
                                 垫图参考
                               </span>
                             )}
@@ -754,7 +740,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                             ? "计算失败"
                             : "AI 节点生成中..."}
                         </span>
-                        <span className="font-bold text-[#0084FF]">
+                         <span className="font-bold text-[#b4533d]">
                           {isCompleted ? "100%" : isVideo ? `${videoTask?.progress || 10}%` : "渲染中"}
                         </span>
                       </div>
@@ -767,8 +753,8 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                               : isFailed
                               ? "bg-rose-500"
                               : isVideo
-                              ? "bg-[#0084FF]"
-                              : "bg-purple-600 animate-pulse"
+                               ? "bg-[#b4533d]"
+                               : "bg-[#71815b] animate-pulse"
                           }`}
                           style={{
                             width: isCompleted ? "100%" : isVideo ? `${videoTask?.progress || 10}%` : "60%",
@@ -784,11 +770,11 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                         <button
                           onClick={() => handleCheckVideoStatus(videoTask)}
                           disabled={pollingTaskId === videoTask.id}
-                          className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:border-[#0084FF] hover:text-[#0084FF] transition-colors"
+                           className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:border-[#b4533d] hover:text-[#b4533d] transition-colors"
                           title="查询最新计算进度"
                         >
                           <RefreshCw
-                            className={`h-3.5 w-3.5 ${pollingTaskId === videoTask.id ? "animate-spin text-[#0084FF]" : ""}`}
+                             className={`h-3.5 w-3.5 ${pollingTaskId === videoTask.id ? "animate-spin text-[#b4533d]" : ""}`}
                           />
                         </button>
                       )}
@@ -796,7 +782,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                       {/* Copy Prompt */}
                       <button
                         onClick={() => handleCopyPrompt(item.id, item.prompt)}
-                        className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:border-[#0084FF] hover:text-[#0084FF] transition-colors"
+                         className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:border-[#b4533d] hover:text-[#b4533d] transition-colors"
                         title="复制提示词"
                       >
                         {copiedId === item.id ? (
@@ -810,7 +796,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                       {isVideo && videoTask ? (
                         <button
                           onClick={() => onReuseParams(videoTask)}
-                          className="rounded-full border border-[#0084FF]/30 bg-[#0084FF]/10 px-3 py-1 text-[11px] font-medium text-[#0084FF] hover:bg-[#0084FF]/20 transition-colors"
+                          className="rounded-full border border-[#b4533d]/30 bg-[#b4533d]/10 px-3 py-1 text-[11px] font-medium text-[#b4533d] hover:bg-[#b4533d]/20 transition-colors"
                           title="套用参数到视频工作室"
                         >
                           复用参数
@@ -819,7 +805,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                         imageTask && onReuseImageParams && (
                           <button
                             onClick={() => onReuseImageParams(imageTask)}
-                            className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/20 transition-colors"
+                            className="rounded-full border border-[#71815b]/30 bg-[#71815b]/10 px-3 py-1 text-[11px] font-medium text-[#71815b] hover:bg-[#71815b]/20 transition-colors"
                             title="套用参数到图像工作室"
                           >
                             复用参数
@@ -831,10 +817,10 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                       {!isVideo && imageTask && isCompleted && imageTask.imageUrl && onImageToVideo && (
                         <button
                           onClick={() => onImageToVideo(imageTask)}
-                          className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-500/20 transition-colors flex items-center space-x-1"
+                           className="rounded-full border border-[#b4533d]/30 bg-[#b4533d]/10 px-2.5 py-1 text-[11px] font-medium text-[#b4533d] hover:bg-[#b4533d]/20 transition-colors flex items-center space-x-1"
                           title="使用此图片作为参考生成 AI 视频"
                         >
-                          <Film className="h-3 w-3 text-indigo-600" />
+                           <Film className="h-3 w-3 text-[#b4533d]" />
                           <span>转视频</span>
                         </button>
                       )}
@@ -859,7 +845,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                                 title="下载视频文件"
                               >
                                 {downloadingTaskId === videoTask.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0084FF]" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#b4533d]" />
                                 ) : (
                                   <Download className="h-3.5 w-3.5" />
                                 )}
@@ -871,7 +857,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                             <>
                               <button
                                 onClick={() => setPreviewImageTask(imageTask)}
-                                className="rounded-full bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 text-[11px] font-medium shadow-sm transition-colors flex items-center space-x-1"
+                                className="rounded-full bg-[#71815b] hover:bg-[#5f6d4c] text-white px-3 py-1 text-[11px] font-medium shadow-sm transition-colors flex items-center space-x-1"
                               >
                                 <Maximize2 className="h-3 w-3" />
                                 <span>大图</span>
@@ -880,11 +866,11 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
                               <button
                                 onClick={() => handleDownloadImage(imageTask)}
                                 disabled={downloadingTaskId === imageTask.id}
-                                className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:text-purple-700 hover:border-purple-300 disabled:opacity-50 transition-colors"
+                                className="rounded-full border border-slate-200/80 bg-slate-50 p-1.5 text-slate-600 hover:text-[#71815b] hover:border-[#b9c9a9] disabled:opacity-50 transition-colors"
                                 title="下载高清图像"
                               >
                                 {downloadingTaskId === imageTask.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-600" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#71815b]" />
                                 ) : (
                                   <Download className="h-3.5 w-3.5" />
                                 )}

@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig({
-  base: '/yun-studio/',
+export default defineConfig(({ command }) => ({
+  // Relative assets work when the app is served at the domain root or under a subpath.
+  base: command === 'build' ? './' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -15,4 +16,4 @@ export default defineConfig({
     hmr: process.env.DISABLE_HMR !== 'true',
     watch: process.env.DISABLE_HMR === 'true' ? null : {},
   },
-});
+}));

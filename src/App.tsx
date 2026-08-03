@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Info, Video, Play, MessageSquare, Image as ImageIcon, Layers, Sparkles, Wand2, ShieldCheck, ArrowRight, Trash2 } from "lucide-react";
-import { fetchJson } from "./lib/api";
+import React, { useState, useEffect, useRef } from "react";
+import { Info, Video, Play, Image as ImageIcon, Layers, Sparkles, ShieldCheck, ArrowRight, Trash2, Maximize2, X, UserRound, GripHorizontal, ChevronDown, Plus, History } from "lucide-react";
+import { AUTH_SESSION_STORAGE_KEY, fetchJson } from "./lib/api";
 import {
   VideoTask,
   VideoGenerationRequest,
@@ -9,6 +9,7 @@ import {
   ChatSession,
   ImageTask,
   AspectRatio,
+  AuthUser,
 } from "./types";
 import {
   STORAGE_KEY_MULTI_CONFIG,
@@ -23,22 +24,162 @@ import { Navbar } from "./components/Navbar";
 import { VideoStudio } from "./components/VideoStudio";
 import { ChatStudio } from "./components/ChatStudio";
 import { ImageStudio } from "./components/ImageStudio";
+import { ProductWorkflowStudio } from "./components/ProductWorkflowStudio";
 import { TaskManager } from "./components/TaskManager";
-import { ActiveGenerationCard } from "./components/ActiveGenerationCard";
 import { ApiConfigModal } from "./components/ApiConfigModal";
-import { PromptTemplatesModal } from "./components/PromptTemplatesModal";
 import { VideoPlayerModal } from "./components/VideoPlayerModal";
+import ClickSpark from "./components/ClickSpark";
+import { LoginScreen } from "./components/LoginScreen";
+import { AdminAccountManager } from "./components/AdminAccountManager";
+import { ProfileSettingsModal } from "./components/ProfileSettingsModal";
+import { PixelPet } from "./components/PixelPet";
+import CursorGrid from "./components/CursorGrid";
+
+interface AuthSessionState {
+  token: string;
+  user: AuthUser;
+}
+
+const scopedStorageKey = (key: string, userId: string) => `${key}:${userId}`;
+
+function readUserScopedState<T>(key: string, userId: string): T | null {
+  try {
+    const scoped = localStorage.getItem(scopedStorageKey(key, userId));
+    if (scoped) return JSON.parse(scoped) as T;
+    if (userId !== "admin") return null;
+    const legacy = localStorage.getItem(key);
+    return legacy ? JSON.parse(legacy) as T : null;
+  } catch {
+    return null;
+  }
+}
+
+function AuthGate() {
+  const [session, setSession] = useState<AuthSessionState | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  });
+  const [isChecking, setIsChecking] = useState(Boolean(session));
+
+  useEffect(() => {
+    if (!session?.token) {
+      setIsChecking(false);
+      return;
+    }
+    fetchJson<{ user: AuthUser }>("/api/auth/me")
+      .then((data) => setSession((current) => current ? { ...current, user: data.user } : current))
+      .catch(() => {
+        localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+        setSession(null);
+      })
+      .finally(() => setIsChecking(false));
+  }, []);
+
+  const handleAuthenticated = (nextSession: AuthSessionState) => {
+    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession));
+    setSession(nextSession);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetchJson("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Clear the local session even when the server is temporarily unavailable.
+    }
+    localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    setSession(null);
+  };
+
+  if (isChecking) {
+    return <div className="flex min-h-screen items-center justify-center bg-[#eaf4ff] text-sm text-slate-500">正在检查登录状态...</div>;
+  }
+  if (!session) return <LoginScreen onAuthenticated={handleAuthenticated} />;
+  return <StudioApp authUser={session.user} onLogout={handleLogout} />;
+}
 
 export default function App() {
+  return <AuthGate />;
+}
+
+function StudioApp({ authUser, onLogout }: { authUser: AuthUser; onLogout: () => void }) {
+  const initialHash = window.location.hash.replace("#", "");
   const [activeTab, setActiveTabState] = useState<ActiveTab>(() => {
     const hash = window.location.hash.replace("#", "");
-    if (["home", "video", "chat", "image", "tasks"].includes(hash)) {
+    if (hash === "chat") return "home";
+    if (["home", "workflow", "video", "chat", "image", "tasks"].includes(hash)) {
       return hash as ActiveTab;
     }
     return "home";
   });
+  const [isChatOpen, setIsChatOpen] = useState(() => initialHash === "chat");
+  const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 });
+  const chatDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
+
+  const openChat = () => {
+    setChatPosition({ x: 0, y: 0 });
+    setIsChatMenuOpen(false);
+    setIsChatOpen(true);
+  };
+
+  const dispatchChatCommand = (command: "new" | "clear" | "history") => {
+    window.dispatchEvent(new CustomEvent(`yunwang-chat-${command}`));
+    setIsChatMenuOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isChatMenuOpen) return;
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!chatMenuRef.current?.contains(target)) setIsChatMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [isChatMenuOpen]);
+
+  const handleChatDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    chatDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: chatPosition.x,
+      originY: chatPosition.y,
+    };
+  };
+
+  const handleChatDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = chatDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const nextX = drag.originX + event.clientX - drag.startX;
+    const nextY = drag.originY + event.clientY - drag.startY;
+    setChatPosition({
+      x: Math.max(-window.innerWidth + 160, Math.min(24, nextX)),
+      y: Math.max(-window.innerHeight + 160, Math.min(24, nextY)),
+    });
+  };
+
+  const handleChatDragEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (chatDragRef.current?.pointerId !== event.pointerId) return;
+    chatDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
 
   const setActiveTab = (tab: ActiveTab) => {
+    setIsChatOpen(false);
     setActiveTabState(tab);
     window.location.hash = tab;
     window.scrollTo(0, 0);
@@ -47,8 +188,14 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      if (["home", "video", "chat", "image", "tasks"].includes(hash)) {
-        setActiveTabState(hash as ActiveTab);
+      if (["home", "workflow", "video", "chat", "image", "tasks"].includes(hash)) {
+        if (hash === "chat") {
+          setIsChatOpen(true);
+          setActiveTabState("home");
+        } else {
+          setIsChatOpen(false);
+          setActiveTabState(hash as ActiveTab);
+        }
         window.scrollTo(0, 0);
       }
     };
@@ -57,8 +204,9 @@ export default function App() {
   }, []);
   const [isApiModalOpen, setIsApiModalOpen] = useState<boolean>(false);
   const [apiModalModule, setApiModalModule] = useState<"video" | "chat" | "image">("video");
-  const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [selectedTaskForPreview, setSelectedTaskForPreview] = useState<VideoTask | null>(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
+  const [selectedImagePreviewError, setSelectedImagePreviewError] = useState(false);
 
   // Prefilled prompt payload when reusing params
   const [prefilledPrompt, setPrefilledPrompt] = useState<{
@@ -72,14 +220,27 @@ export default function App() {
   // Multi-API Config State (Video, Chat, Image)
   const [multiConfig, setMultiConfig] = useState<MultiApiConfig>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_MULTI_CONFIG);
-      if (saved) return JSON.parse(saved);
+      const saved = readUserScopedState<MultiApiConfig>(STORAGE_KEY_MULTI_CONFIG, authUser.id);
+      if (saved) {
+        return {
+          ...saved,
+          video: {
+            ...saved.video,
+            provider: saved.video.provider === "custom-rest" && saved.video.apiUrl?.trim() ? "custom-rest" : "ycvip-grok",
+            apiUrl: saved.video.provider === "custom-rest" && saved.video.apiUrl?.trim() ? saved.video.apiUrl : "",
+          },
+        };
+      }
 
       const oldSaved = localStorage.getItem("visioncraft_api_config_v2");
       if (oldSaved) {
         const oldObj = JSON.parse(oldSaved);
         return {
-          video: oldObj,
+          video: {
+            ...oldObj,
+            provider: oldObj.provider === "custom-rest" && oldObj.apiUrl?.trim() ? "custom-rest" : "ycvip-grok",
+            apiUrl: oldObj.provider === "custom-rest" && oldObj.apiUrl?.trim() ? oldObj.apiUrl : "",
+          },
           chat: { ...DEFAULT_MULTI_CONFIG.chat, apiKey: oldObj.apiKey || "" },
           image: { ...DEFAULT_MULTI_CONFIG.image, apiKey: oldObj.apiKey || "" },
         };
@@ -92,72 +253,69 @@ export default function App() {
 
   // Video Tasks State
   const [tasks, setTasks] = useState<VideoTask[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_TASKS);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return readUserScopedState<VideoTask[]>(STORAGE_KEY_TASKS, authUser.id) || [];
   });
 
   // Chat Sessions State
   const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_CHAT);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return readUserScopedState<ChatSession[]>(STORAGE_KEY_CHAT, authUser.id) || [];
   });
 
   // Image Tasks State
   const [imageTasks, setImageTasks] = useState<ImageTask[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_IMAGE_TASKS);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return readUserScopedState<ImageTask[]>(STORAGE_KEY_IMAGE_TASKS, authUser.id) || [];
   });
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isAdminAccountManagerOpen, setIsAdminAccountManagerOpen] = useState(false);
+  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState(true);
+
+  const dismissPrivacyNotice = () => {
+    setShowPrivacyNotice(false);
+  };
 
   // LocalStorage sync
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_MULTI_CONFIG, JSON.stringify(multiConfig));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_MULTI_CONFIG, authUser.id), JSON.stringify(multiConfig));
     } catch (err) {
       console.error("Failed to save multiConfig:", err);
     }
-  }, [multiConfig]);
+  }, [authUser.id, multiConfig]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_TASKS, JSON.stringify(tasks));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_TASKS, authUser.id), JSON.stringify(tasks));
     } catch (err) {
       console.error("Failed to save tasks:", err);
     }
-  }, [tasks]);
+  }, [authUser.id, tasks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_CHAT, JSON.stringify(chatSessions));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_CHAT, authUser.id), JSON.stringify(chatSessions));
     } catch (err) {
       console.error("Failed to save chat sessions:", err);
     }
-  }, [chatSessions]);
+  }, [authUser.id, chatSessions]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_IMAGE_TASKS, JSON.stringify(imageTasks));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_IMAGE_TASKS, authUser.id), JSON.stringify(imageTasks));
     } catch (err) {
       console.error("Failed to save image tasks:", err);
     }
-  }, [imageTasks]);
+  }, [authUser.id, imageTasks]);
+
+  useEffect(() => {
+    if (authUser.id !== "admin") return;
+    [STORAGE_KEY_MULTI_CONFIG, STORAGE_KEY_TASKS, STORAGE_KEY_CHAT, STORAGE_KEY_IMAGE_TASKS].forEach((key) => localStorage.removeItem(key));
+  }, [authUser.id]);
 
   const handleOpenApiConfig = (module?: "video" | "chat" | "image") => {
     if (module) setApiModalModule(module);
-    else setApiModalModule(activeTab === "tasks" ? "video" : activeTab);
+    else setApiModalModule(activeTab === "chat" ? "chat" : activeTab === "image" ? "image" : "video");
     setIsApiModalOpen(true);
   };
 
@@ -170,16 +328,20 @@ export default function App() {
     setIsSubmitting(true);
     try {
       const data = await fetchJson<{
+        taskId?: string;
         operationName?: string;
         provider?: string;
         directVideoUrl?: string;
-        success?: boolean;
+        status?: "pending" | "processing" | "completed" | "failed";
+        progress?: number;
+        stage?: string;
         error?: string;
+        success?: boolean;
       }>("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-      });
+      }, 180000);
 
       if (data.success === false) {
         throw new Error(data.error || "上游视频接口提交失败");
@@ -187,7 +349,7 @@ export default function App() {
 
       const newTask: VideoTask = {
         id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        operationName: data.operationName || `op_${Date.now()}`,
+        operationName: data.operationName || data.taskId || `op_${Date.now()}`,
         provider: data.provider || request.provider,
         mode: request.mode,
         prompt: request.prompt,
@@ -197,18 +359,16 @@ export default function App() {
         aspectRatio: request.aspectRatio,
         resolution: request.resolution,
         duration: request.duration,
-        status: data.directVideoUrl ? "completed" : "processing",
-        progress: data.directVideoUrl ? 100 : 10,
-        stage: data.directVideoUrl ? "已生成视频" : "已提交任务，正在分配生成节点...",
+        status: data.status || (data.directVideoUrl ? "completed" : "processing"),
+        progress: data.progress ?? (data.directVideoUrl ? 100 : 10),
+        stage: data.stage || (data.directVideoUrl ? "已生成视频" : "已提交任务，正在分配生成节点..."),
         createdAt: Date.now(),
         videoUrl: data.directVideoUrl,
+        error: data.error,
+        source: request.source || "standalone-video",
       };
 
       setTasks((prev) => [newTask, ...prev]);
-
-      if (data.directVideoUrl) {
-        setSelectedTaskForPreview(newTask);
-      }
     } catch (err: any) {
       alert(`创建任务时发生错误: ${err.message || "请求失败"}`);
     } finally {
@@ -276,25 +436,29 @@ export default function App() {
     setActiveTab("video");
   };
 
-  const handleSelectTemplate = (template: {
-    prompt: string;
-    style?: string;
-    aspectRatio?: AspectRatio;
-  }) => {
-    setPrefilledPrompt(template);
-    if (activeTab !== "image" && activeTab !== "video") {
-      setActiveTab("image");
-    }
-  };
+  const standaloneVideoTasks = tasks.filter((task) => task.source !== "product-workflow");
+  const workflowVideoTasks = tasks.filter((task) => task.source === "product-workflow");
+  const standaloneImageTasks = imageTasks.filter((task) => task.source !== "product-workflow");
 
-  const activeTasks = tasks.filter(
+  const activeTasks = standaloneVideoTasks.filter(
     (t) => t.status === "processing" || t.status === "pending"
   );
-  const completedTasks = tasks.filter((t) => t.status === "completed");
+  const completedTasks = standaloneVideoTasks.filter((t) => t.status === "completed");
+  const latestWorkflowVideoTask = workflowVideoTasks[0] ?? null;
 
-  const activeConfig = multiConfig[(activeTab === "tasks" || activeTab === "home") ? "video" : activeTab];
+  const activeConfig = multiConfig[(activeTab === "tasks" || activeTab === "home" || activeTab === "workflow") ? "video" : activeTab];
 
   return (
+    <ClickSpark
+      sparkColor="#0084FF"
+      sparkSize={9}
+      sparkRadius={22}
+      sparkCount={8}
+      duration={430}
+      easing="ease-out"
+      extraScale={1}
+    >
+    <PixelPet placement={activeTab === "home" ? "home" : "workspace"} onOpenChat={openChat} />
     <div className="min-h-screen bg-[#eaf4ff] font-sans text-slate-900 antialiased selection:bg-[#0084FF]/20 selection:text-[#0084FF]">
       
       {/* 1. Independent Page View: Landing Page */}
@@ -302,56 +466,94 @@ export default function App() {
         <LiquidGlassHero
           activeTab={activeTab}
           onNavigate={(tab) => setActiveTab(tab)}
+          onOpenProfile={() => setIsProfileSettingsOpen(true)}
         />
       ) : (
         /* 2. Independent Page View: Dedicated AI Studio Workspace View */
-        <div id="ai-studio-workspace" className="relative z-20 min-h-screen border-t border-white/80 bg-gradient-to-b from-[#eaf4ff] via-[#f4f9ff] to-[#ffffff] pt-2 pb-20 overflow-hidden">
+        <div id="ai-studio-workspace" className={`workspace-shell workspace-shell--${activeTab} relative z-20 min-h-screen border-t border-white/80 bg-gradient-to-b from-[#eaf4ff] via-[#f4f9ff] to-[#ffffff] pt-2 pb-20 overflow-hidden ${activeTab === "video" ? "video-page-shell" : ""}`}>
+          {["video", "image", "tasks", "workflow"].includes(activeTab) && (
+            <div className="workspace-grid-background pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+              <CursorGrid
+                cellSize={76}
+                color="#2d9dff"
+                radius={170}
+                falloff="smooth"
+                holdTime={80}
+                fadeDuration={650}
+                lineWidth={1}
+                maxOpacity={0.42}
+                fillOpacity={0.035}
+                gridOpacity={0.018}
+                cellRadius={12}
+                clickPulse
+                pulseSpeed={680}
+              />
+            </div>
+          )}
           {/* Liquid Glass Background Orbs matching Landing Page */}
           <div className="absolute top-10 left-10 w-[600px] h-[600px] rounded-full bg-[#60B1FF]/20 blur-[130px] pointer-events-none" />
           <div className="absolute bottom-10 right-10 w-[600px] h-[600px] rounded-full bg-[#0084FF]/15 blur-[140px] pointer-events-none" />
           
           {/* Workspace Navigation Header */}
           <Navbar
-            multiConfig={multiConfig}
-            onOpenApiConfig={handleOpenApiConfig}
-            onOpenTemplates={() => setIsTemplatesModalOpen(true)}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             historyCount={completedTasks.length}
             processingCount={activeTasks.length}
+            currentUser={authUser}
+            onOpenAdmin={() => setIsAdminAccountManagerOpen(true)}
+            onOpenProfile={() => setIsProfileSettingsOpen(true)}
           />
 
         {/* Main Workspace Container */}
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 relative z-10">
+        <main className={`workspace-main mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 relative z-10 ${activeTab === "video" ? "video-workspace-main" : ""}`}>
+          <div className={activeTab === "workflow" ? "workspace-page workspace-page--workflow block" : "hidden"}>
+            <ProductWorkflowStudio
+              multiConfig={multiConfig}
+              imageTasks={imageTasks}
+              onSaveImageTasks={setImageTasks}
+              onSubmitTask={handleSubmitTask}
+              onOpenTaskLibrary={() => setActiveTab("tasks")}
+              onUpdateVideoConfig={(updates) => {
+                handleSaveMultiConfig({
+                  ...multiConfig,
+                  video: { ...multiConfig.video, ...updates },
+                });
+              }}
+              isSubmitting={isSubmitting}
+              activeTask={latestWorkflowVideoTask}
+              onTaskUpdated={handleUpdateTask}
+              storageNamespace={authUser.id}
+            />
+          </div>
+
           {/* 🎬 Video Studio View */}
           {activeTab === "video" && (
-            <div>
+            <div className="workspace-page workspace-page--video video-page">
               {/* Dedicated Video View Header */}
-              <div className="mb-8 rounded-[24px] border border-white/90 bg-white/80 p-6 sm:p-8 backdrop-blur-2xl shadow-xl shadow-blue-500/5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-[#0084FF]/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-[#0084FF]/30 bg-[#0084FF]/10 px-3.5 py-1 text-xs font-semibold text-[#0084FF] backdrop-blur-md">
-                      <Video className="w-3.5 h-3.5" />
-                      <span>云往AI 电影视效引擎 • Kling / Grok-3 强力渲染</span>
-                    </div>
-                    <h2 className="text-2xl sm:text-3xl font-fustat font-bold tracking-tight text-slate-900">
-                      电影级 AI 视频创作套件
-                    </h2>
-                    <p className="text-sm text-slate-600 max-w-2xl leading-relaxed">
-                      支持高质量文本生成视频、图生视频、首尾帧自然过渡与专业运镜逻辑，打造沉浸式视觉视效。
-                    </p>
+              <div className="workspace-page-intro video-page-header">
+                <div className="video-page-header__copy">
+                  <div className="video-page-eyebrow">
+                    <Video className="h-3.5 w-3.5" />
+                    <span>AI VIDEO WORKSPACE</span>
                   </div>
+                  <h2 className="video-page-title">把想法变成一条视频</h2>
+                  <p className="video-page-description">
+                    从文字或首帧开始，设置画幅与运镜，交给模型完成视觉表达。
+                  </p>
+                </div>
+                <div className="video-page-header__meta">
+                  <div className="video-page-status"><span />接口已连接</div>
+                  <div className="video-page-meta-line">作品统一保存在任务库</div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
                 {/* Left/Main Column: Video Studio Form */}
-                <div className="lg:col-span-8">
+                <div className="lg:col-span-12">
                   <VideoStudio
                     apiConfig={multiConfig.video}
-                    onOpenApiConfig={() => handleOpenApiConfig("video")}
-                    onOpenTemplates={() => setIsTemplatesModalOpen(true)}
+                    chatConfig={multiConfig.chat}
                     onUpdateApiConfig={(updates) => {
                       handleSaveMultiConfig({
                         ...multiConfig,
@@ -362,202 +564,166 @@ export default function App() {
                       });
                     }}
                     onSubmitTask={handleSubmitTask}
+                    taskSource="standalone-video"
                     isSubmitting={isSubmitting}
                     prefilledPrompt={prefilledPrompt}
                   />
-                </div>
-
-                {/* Right Column: Active Generations & Quick History Side Panel */}
-                <div className="space-y-6 lg:col-span-4">
-                  {/* Active Generating Tasks Section */}
-                  {activeTasks.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-[#0084FF] flex items-center space-x-1.5">
-                          <span className="h-2 w-2 rounded-full bg-[#0084FF] animate-ping" />
-                          <span>正在生成的视频任务 ({activeTasks.length})</span>
-                        </h3>
-                      </div>
-
-                      <div className="space-y-3">
-                        {activeTasks.map((task) => (
-                          <ActiveGenerationCard
-                            key={task.id}
-                            task={task}
-                            apiConfig={multiConfig.video}
-                            onTaskUpdated={handleUpdateTask}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quick Recent Video Generations */}
-                  <div className="rounded-[24px] border border-white/90 bg-white/80 backdrop-blur-2xl p-5 shadow-xl shadow-blue-500/5">
-                    <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2.5">
-                      <h3 className="text-xs font-semibold text-slate-900">最新创作视频成果</h3>
-                      {completedTasks.length > 0 && (
-                        <button
-                          onClick={() => setActiveTab("tasks")}
-                          className="text-[11px] text-[#0084FF] hover:underline font-medium"
-                        >
-                          查看全部 ({completedTasks.length})
-                        </button>
-                      )}
-                    </div>
-
-                    {completedTasks.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-slate-500">
-                        还未生成过视频，填写左侧描述点击生成吧！
-                      </div>
-                    ) : (
-                      <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1 custom-scrollbar">
-                        {completedTasks.slice(0, 3).map((task) => (
-                          <div
-                            key={task.id}
-                            onClick={() => setSelectedTaskForPreview(task)}
-                            className="group flex cursor-pointer items-center space-x-3 rounded-[16px] border border-slate-200/80 bg-slate-50/80 p-3 transition-all hover:border-[#0084FF]/40 hover:bg-white shadow-sm"
-                          >
-                            <div className="relative h-14 w-20 flex-shrink-0 overflow-hidden rounded-xl bg-slate-900">
-                              {task.videoUrl ? (
-                                <video
-                                  src={task.videoUrl}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-slate-400">
-                                  <Video className="h-6 w-6" />
-                                </div>
-                              )}
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
-                                <Play className="h-4 w-4 fill-white text-white" />
-                              </div>
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-800 font-medium line-clamp-1">
-                                {task.prompt}
-                              </p>
-                              <div className="mt-1 flex items-center space-x-2 text-[10px] text-slate-500">
-                                <span className="font-mono">{task.aspectRatio}</span>
-                                <span>•</span>
-                                <span>{new Date(task.createdAt).toLocaleTimeString()}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* 💬 AI Chat View */}
-          {activeTab === "chat" && (
-            <div>
-              {/* Dedicated Chat View Header */}
-              <div className="mb-8 rounded-[24px] border border-white/90 bg-white/80 p-6 sm:p-8 backdrop-blur-2xl shadow-xl shadow-emerald-500/5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-700 backdrop-blur-md">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>云往AI 智能对话 • Gemini-3.6-Flash 强力驱动</span>
-                    </div>
-                    <h2 className="text-2xl sm:text-3xl font-fustat font-bold tracking-tight text-slate-900">
-                      全能 AI 智能对话与思考助理
-                    </h2>
-                    <p className="text-sm text-slate-600 max-w-2xl leading-relaxed">
-                      预设全栈工程师、爆款文案策划、同声翻译等多角色，支持多轮深度思考与长文本流畅交互。
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <ChatStudio
-                chatConfig={multiConfig.chat}
-                onOpenApiConfig={() => handleOpenApiConfig("chat")}
-                sessions={chatSessions}
-                onSaveSessions={setChatSessions}
-              />
-            </div>
-          )}
-
           {/* 🎨 AI Image Studio View */}
           {activeTab === "image" && (
-            <div>
+            <div className="workspace-page workspace-page--image">
               {/* Dedicated Image View Header */}
-              <div className="mb-8 rounded-[24px] border border-white/90 bg-white/80 p-6 sm:p-8 backdrop-blur-2xl shadow-xl shadow-purple-500/5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-purple-500/30 bg-purple-500/10 px-3.5 py-1 text-xs font-semibold text-purple-700 backdrop-blur-md">
+              <div className="workspace-page-intro image-page-header">
+                <div className="image-page-header__layout">
+                  <div className="image-page-header__copy">
+                    <div className="image-page-eyebrow">
                       <ImageIcon className="w-3.5 h-3.5" />
                       <span>云往AI 图像创作 • Imagen-3.0 美学模型</span>
                     </div>
-                    <h2 className="text-2xl sm:text-3xl font-fustat font-bold tracking-tight text-slate-900">
-                      艺术级 AI 图像创作与渲染套件
+                    <h2 className="image-page-title">
+                      摆烂式-AI图像创作和渲染
                     </h2>
-                    <p className="text-sm text-slate-600 max-w-2xl leading-relaxed">
+                    <p className="image-page-description">
                       配备提示词智能润色、负向提示词排除、赛博朋克/写实胶片风格预设与多种画幅一键导出。
                     </p>
+                  </div>
+                  <div className="image-page-header__meta">
+                    <div className="image-page-status"><span />接口已连接</div>
+                    <div className="image-page-meta-line">图像作品统一保存到任务库</div>
                   </div>
                 </div>
               </div>
 
-              <ImageStudio
-                imageConfig={multiConfig.image}
-                chatConfig={multiConfig.chat}
-                onOpenApiConfig={() => handleOpenApiConfig("image")}
-                onOpenTemplates={() => setIsTemplatesModalOpen(true)}
-                tasks={imageTasks}
-                onSaveTasks={setImageTasks}
-                prefilledPrompt={prefilledPrompt}
-              />
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-12 md:items-start">
+                <div className="workspace-image-studio md:col-span-12">
+                  <ImageStudio
+                    imageConfig={multiConfig.image}
+                    chatConfig={multiConfig.chat}
+                    tasks={standaloneImageTasks}
+                    taskSource="standalone-image"
+                    onSaveTasks={setImageTasks}
+                    prefilledPrompt={prefilledPrompt}
+                  />
+                </div>
+
+                <aside className="hidden">
+                  <div className="rounded-[24px] border border-white/90 bg-white/80 p-6 shadow-xl shadow-purple-500/5 backdrop-blur-2xl">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">图像生成进度</h3>
+                        <p className="mt-1 text-xs text-slate-500">实时查看最近的图像任务</p>
+                      </div>
+                      <span className="rounded-full bg-purple-500/10 px-2.5 py-1 text-[10px] font-semibold text-purple-700">
+                        {standaloneImageTasks.filter((task) => task.status === "processing" || task.status === "pending").length} 个处理中
+                      </span>
+                    </div>
+
+                    {standaloneImageTasks.length === 0 ? (
+                      <div className="py-10 text-center">
+                        <ImageIcon className="mx-auto h-8 w-8 text-slate-300" />
+                        <p className="mt-3 text-xs font-medium text-slate-600">还没有图像生成任务</p>
+                        <p className="mt-1 text-[11px] text-slate-400">填写左侧提示词后即可开始生成</p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 space-y-3">
+                        {standaloneImageTasks.slice(0, 5).map((task) => {
+                          const isProcessing = task.status === "processing" || task.status === "pending";
+                          const isFailed = task.status === "failed";
+
+                          return (
+                            <div key={task.id} className="rounded-[16px] border border-slate-200/80 bg-white/70 p-4">
+                              <div className="flex items-start gap-3">
+                                <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                                  {task.imageUrl ? (
+                                    <button
+                                      type="button"
+                                      title="放大查看图片"
+                                      aria-label="放大查看图片"
+                                      onClick={() => {
+                                        setSelectedImagePreviewError(false);
+                                        setSelectedImagePreview(task.imageUrl || null);
+                                      }}
+                                      className="group relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                                    >
+                                      <img src={task.imageUrl} alt="生成结果，点击放大查看" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                                      <span className="pointer-events-none absolute bottom-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900/65 text-white opacity-80 transition group-hover:bg-purple-600/90 group-hover:opacity-100">
+                                        <Maximize2 className="h-3.5 w-3.5" />
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                      <ImageIcon className={`h-5 w-5 ${isFailed ? "text-rose-400" : "text-purple-400"}`} />
+                                    </div>
+                                  )}
+                                  {isProcessing && <span className="absolute inset-0 animate-pulse bg-purple-500/15" />}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold text-purple-700">
+                                      {isProcessing ? "生成中" : isFailed ? "生成失败" : "生成完成"}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">{task.aspectRatio}</span>
+                                  </div>
+                                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-slate-700">{task.prompt}</p>
+                                </div>
+                              </div>
+                              {isProcessing && <div className="mt-3 h-1 overflow-hidden rounded-full bg-purple-100"><div className="h-full w-2/5 animate-pulse rounded-full bg-purple-500" /></div>}
+                              {isFailed && task.error && <p className="mt-2 line-clamp-2 text-[10px] text-rose-500">{task.error}</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {standaloneImageTasks.length > 5 && (
+                      <button type="button" onClick={() => setActiveTab("tasks")} className="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-purple-300 hover:text-purple-700">
+                        查看全部图像任务
+                      </button>
+                    )}
+                  </div>
+                </aside>
+              </div>
             </div>
           )}
 
           {/* 📂 Task Manager Library View */}
           {activeTab === "tasks" && (
-            <div>
+            <div className="workspace-page workspace-page--tasks">
+              {showPrivacyNotice && <div className="tasks-privacy-notice mb-6 flex items-start gap-3 rounded-2xl border-2 border-orange-300 bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 px-4 py-4 text-orange-950 shadow-lg shadow-orange-200/50">
+                <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-orange-600" />
+                <div className="min-w-0">
+                  <p className="text-base font-extrabold">隐私公告：请及时下载作品</p>
+                  <p className="mt-1 text-sm font-medium leading-relaxed text-orange-800">图片和视频不会保存在本站服务器，生成完成后请及时下载。</p>
+                </div>
+                <button type="button" onClick={dismissPrivacyNotice} className="ml-auto shrink-0 rounded-full p-1.5 text-orange-700 transition hover:bg-orange-200/70" aria-label="关闭隐私公告" title="关闭提醒"><X className="h-4 w-4" /></button>
+              </div>}
+
               {/* Dedicated Task Library View Header */}
-              <div className="mb-8 rounded-[24px] border border-white/90 bg-white/80 p-6 sm:p-8 backdrop-blur-2xl shadow-xl shadow-amber-500/5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-700 backdrop-blur-md">
-                      <Layers className="w-3.5 h-3.5" />
-                      <span>云往AI 成果与创作资产库</span>
-                    </div>
-                    <h2 className="text-2xl sm:text-3xl font-fustat font-bold tracking-tight text-slate-900">
-                      全能任务生成历史与作品管理
-                    </h2>
-                    <p className="text-sm text-slate-600 max-w-2xl leading-relaxed">
-                      实时监控生成进度、管理完成与处理中任务、参数一键重用与全屏高清播放回放。
-                    </p>
+              <div className="workspace-page-intro tasks-page-header">
+                <div className="tasks-page-header__copy tasks-page-header__copy--custom-title">
+                  <div className="tasks-page-eyebrow">
+                    <Layers className="h-3.5 w-3.5" />
+                    <span>TASK LIBRARY / LOCAL WORKSPACE</span>
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <button
-                      onClick={() => setActiveTab("video")}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-[16px] bg-[#0084FF] hover:bg-[#0070e0] text-xs font-semibold text-white transition-all shadow-lg shadow-[#0084FF]/30"
-                    >
-                      <Wand2 className="w-4 h-4" />
-                      <span>新建视频作品</span>
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("image")}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-[16px] bg-purple-600 hover:bg-purple-700 text-xs font-semibold text-white transition-all shadow-lg shadow-purple-600/30"
-                    >
-                      <ImageIcon className="w-4 h-4" />
-                      <span>新建图像作品</span>
-                    </button>
-                  </div>
+                  <h2 className="tasks-page-title tasks-page-title--custom">我的小金库我来打理</h2>
+                  <h2 className="tasks-page-title">任务库 · 作品管理</h2>
+                  <p className="tasks-page-description">
+                    集中查看图片与视频生成结果，追踪任务状态，并快速下载或复用创作参数。
+                  </p>
+                </div>
+                <div className="tasks-page-header__meta">
+                  <div className="tasks-page-status"><span />本地资产库</div>
+                  <div className="tasks-page-meta-line">作品完成后请及时下载保存</div>
                 </div>
               </div>
 
-              <TaskManager
+              <div className="workspace-task-content">
+                <TaskManager
                 tasks={tasks}
                 imageTasks={imageTasks}
                 apiConfig={multiConfig.video}
@@ -571,11 +737,78 @@ export default function App() {
                 onImageToVideo={handleImageToVideo}
                 onSelectTaskForPreview={(task) => setSelectedTaskForPreview(task)}
                 onStartCreate={(tab) => setActiveTab(tab || "video")}
-              />
+                />
+              </div>
             </div>
           )}
         </main>
       </div>
+      )}
+
+      {isChatOpen && (
+        <div className="chat-float-layer">
+          <section
+            className="chat-float-window"
+            role="dialog"
+            aria-modal="false"
+            aria-label="AI 对话"
+            style={{ transform: `translate3d(${chatPosition.x}px, ${chatPosition.y}px, 0)` }}
+          >
+            <div
+              className="chat-float-drag-handle"
+              onPointerDown={handleChatDragStart}
+              onPointerMove={handleChatDragMove}
+              onPointerUp={handleChatDragEnd}
+              onPointerCancel={handleChatDragEnd}
+              aria-label="移动 AI 对话窗口"
+            >
+              <GripHorizontal className="h-4 w-4" />
+              <div className="chat-float-menu-shell" ref={chatMenuRef} onPointerDown={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="chat-float-menu-trigger"
+                  onClick={() => setIsChatMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={isChatMenuOpen}
+                >
+                  <span>AI 对话</span>
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isChatMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+                  {isChatMenuOpen && (
+                  <div className="chat-float-menu" role="menu">
+                    <button type="button" onClick={() => dispatchChatCommand("history")}>
+                      <History className="h-3.5 w-3.5" />
+                      <span>查看历史对话</span>
+                    </button>
+                    <button type="button" onClick={() => dispatchChatCommand("new")}>
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>新建对话</span>
+                    </button>
+                    <button type="button" onClick={() => dispatchChatCommand("clear")}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>清空记录</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="chat-float-close"
+              onClick={() => setIsChatOpen(false)}
+              aria-label="关闭 AI 对话"
+              title="关闭"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <ChatStudio
+              chatConfig={multiConfig.chat}
+              sessions={chatSessions}
+              onSaveSessions={setChatSessions}
+              floating
+            />
+          </section>
+        </div>
       )}
 
       {/* Modals */}
@@ -587,13 +820,6 @@ export default function App() {
         initialModule={apiModalModule}
       />
 
-      <PromptTemplatesModal
-        isOpen={isTemplatesModalOpen}
-        onClose={() => setIsTemplatesModalOpen(false)}
-        onSelectTemplate={handleSelectTemplate}
-        activeTab={activeTab}
-      />
-
       <VideoPlayerModal
         isOpen={Boolean(selectedTaskForPreview)}
         onClose={() => setSelectedTaskForPreview(null)}
@@ -601,6 +827,38 @@ export default function App() {
         apiConfig={multiConfig.video}
         onReuseParams={handleReuseParams}
       />
+
+      {selectedImagePreview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="生成图片预览"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
+          onClick={() => setSelectedImagePreview(null)}
+        >
+          <button
+            type="button"
+            aria-label="关闭图片预览"
+            title="关闭"
+            onClick={() => setSelectedImagePreview(null)}
+            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={selectedImagePreview}
+            alt="生成图片大图"
+            onError={() => setSelectedImagePreviewError(true)}
+            onClick={(event) => event.stopPropagation()}
+            className={`${selectedImagePreviewError ? "hidden" : "max-h-[90vh] max-w-[min(94vw,1200px)] object-contain"}`}
+          />
+          {selectedImagePreviewError && (
+            <div className="rounded-2xl border border-rose-300/30 bg-slate-900/80 px-6 py-5 text-center text-sm text-rose-200">
+              图片地址已失效或上游拒绝访问，请重新生成图片。
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Task History Clear Confirm Modal */}
       {showTaskClearConfirm && (
@@ -630,6 +888,21 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {authUser.role === "admin" && (
+        <AdminAccountManager
+          isOpen={isAdminAccountManagerOpen}
+          onClose={() => setIsAdminAccountManagerOpen(false)}
+        />
+      )}
+      <ProfileSettingsModal
+        isOpen={isProfileSettingsOpen}
+        user={authUser}
+        onClose={() => setIsProfileSettingsOpen(false)}
+        onLogout={onLogout}
+        onOpenApiConfig={handleOpenApiConfig}
+      />
     </div>
+    </ClickSpark>
   );
 }

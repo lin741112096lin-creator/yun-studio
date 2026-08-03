@@ -1,19 +1,75 @@
-import React, { useState } from "react";
-import { Star, ArrowRight, Check, Sparkles, X, Video, MessageSquare, Image as ImageIcon, Layers } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Star, ArrowRight, Check, Sparkles, X, Video, Image as ImageIcon, Layers, Workflow, UserRound } from "lucide-react";
 import { ActiveTab } from "../types";
 import { YunwangLogo } from "./YunwangLogo";
+import CursorGrid from "./CursorGrid";
 
 interface LiquidGlassHeroProps {
   onOpenApp?: () => void;
   activeTab?: ActiveTab;
   onNavigate: (tab: ActiveTab) => void;
+  onOpenProfile: () => void;
 }
 
-export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, activeTab = "home", onNavigate }) => {
+export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, activeTab = "home", onNavigate, onOpenProfile }) => {
   const [isSignUpOpen, setIsSignUpOpen] = useState<boolean>(false);
   const [emailInput, setEmailInput] = useState<string>("");
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [videoError, setVideoError] = useState<boolean>(false);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const orbMotionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const hero = heroRef.current;
+    const orb = orbMotionRef.current;
+    if (!hero || !orb) return;
+
+    let animationFrame = 0;
+    let targetX = 0;
+    let targetY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    let pointerActive = false;
+
+    const clamp = (value: number) => Math.max(-1, Math.min(1, value));
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+
+      const bounds = orb.getBoundingClientRect();
+      const centerX = bounds.left + bounds.width / 2;
+      const centerY = bounds.top + bounds.height / 2;
+      targetX = clamp((event.clientX - centerX) / (bounds.width / 2)) * 36;
+      targetY = clamp((event.clientY - centerY) / (bounds.height / 2)) * 24;
+      pointerActive = true;
+    };
+
+    const handlePointerLeave = () => {
+      pointerActive = false;
+    };
+
+    const animateOrb = (time: number) => {
+      if (!pointerActive) {
+        targetX = Math.sin(time * 0.00035) * 5;
+        targetY = Math.cos(time * 0.00028) * 3;
+      }
+
+      currentX += (targetX - currentX) * 0.045;
+      currentY += (targetY - currentY) * 0.045;
+      orb.style.transform = `translate3d(${currentX.toFixed(2)}px, ${currentY.toFixed(2)}px, 0) rotate(${(currentX * 0.035).toFixed(2)}deg)`;
+      animationFrame = window.requestAnimationFrame(animateOrb);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    document.addEventListener("mouseleave", handlePointerLeave, { passive: true });
+    animationFrame = window.requestAnimationFrame(animateOrb);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("mouseleave", handlePointerLeave);
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, []);
 
   // Modal handler for Sign Up / Get Started
   const handleSignUpSubmit = (e: React.FormEvent) => {
@@ -33,7 +89,25 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-inter relative overflow-hidden antialiased selection:bg-[#0084FF]/20 selection:text-[#0084FF]">
+    <div ref={heroRef} className="min-h-screen bg-white text-slate-900 font-inter relative overflow-hidden antialiased selection:bg-[#0084FF]/20 selection:text-[#0084FF]">
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <CursorGrid
+          cellSize={76}
+          color="#2d9dff"
+          radius={170}
+          falloff="smooth"
+          holdTime={80}
+          fadeDuration={650}
+          lineWidth={1}
+          maxOpacity={0.42}
+          fillOpacity={0.035}
+          gridOpacity={0.018}
+          cellRadius={12}
+          clickPulse
+          pulseSpeed={680}
+        />
+      </div>
+
       {/* 1. Subtle, Layered Gradient Glow in Top-Left (Blurred Ellipses #60B1FF and #319AFF) */}
       <div className="absolute top-0 left-0 w-full h-[900px] pointer-events-none overflow-hidden z-0">
         {/* Light Blue #60B1FF Ellipse */}
@@ -54,7 +128,6 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
 
       {/* Main z-10 Container */}
       <div className="relative z-10 max-w-[1600px] mx-auto px-4 sm:px-8 lg:px-12 flex flex-col min-h-screen justify-between">
-        
         {/* 2. The "Strong Liquid Glass" Navbar */}
         <header className="sticky top-[30px] z-50 w-fit mx-auto pt-2">
           <nav 
@@ -74,8 +147,21 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
               </span>
             </div>
 
-            {/* Nav Links (AI 视频, AI 对话, AI 图像, 任务库) */}
+            {/* Nav Links (商品视频, AI 视频, AI 图像, 任务库) */}
             <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium">
+              <button
+                onClick={() => handleStartWorkspace("workflow")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 ${
+                  activeTab === "workflow"
+                    ? "bg-[#0084FF] text-white font-semibold shadow-md shadow-[#0084FF]/30 scale-105"
+                    : "text-slate-700 hover:text-slate-950 hover:bg-white/50"
+                }`}
+              >
+                <Workflow className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">商品视频</span>
+                <span className="sm:hidden">商品</span>
+              </button>
+
               <button
                 onClick={() => handleStartWorkspace("video")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 ${
@@ -86,18 +172,6 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
               >
                 <Video className="w-3.5 h-3.5" />
                 <span>AI 视频</span>
-              </button>
-
-              <button
-                onClick={() => handleStartWorkspace("chat")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 ${
-                  activeTab === "chat"
-                    ? "bg-[#0084FF] text-white font-semibold shadow-md shadow-[#0084FF]/30 scale-105"
-                    : "text-slate-700 hover:text-slate-950 hover:bg-white/50"
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span>AI 对话</span>
               </button>
 
               <button
@@ -124,6 +198,17 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
                 <span>任务库</span>
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="home-profile-nav-button"
+              title="打开个人资料"
+              aria-label="打开个人资料"
+            >
+              <UserRound className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">个人资料</span>
+            </button>
           </nav>
         </header>
 
@@ -168,7 +253,7 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
               电影级 AI 视频创作套件，用一句话生成可发布的视频/图像素材，适合营销、广告和内容团队。
             </p>
 
-            {/* Primary CTA: "AI 视频", "AI 对话", "AI 图像" (Equal size buttons) */}
+            {/* Primary CTA: "AI 视频", "AI 图像" */}
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
               <button
                 type="button"
@@ -183,15 +268,6 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
               >
                 <Video className="w-4 h-4 text-white" />
                 <span>AI 视频</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleStartWorkspace("chat")}
-                className="flex items-center justify-center gap-2 px-5 py-3.5 rounded-[16px] text-slate-700 hover:text-slate-900 font-medium text-sm sm:text-base border border-slate-200/80 bg-white/60 hover:bg-white/90 transition-all duration-200 cursor-pointer select-none backdrop-blur-sm"
-              >
-                <MessageSquare className="w-4 h-4 text-[#0084FF]" />
-                <span>AI 对话</span>
               </button>
 
               <button
@@ -229,39 +305,38 @@ export const LiquidGlassHero: React.FC<LiquidGlassHeroProps> = ({ onOpenApp, act
             <div className="absolute w-[450px] h-[450px] bg-gradient-to-tr from-[#0084FF]/30 to-[#60B1FF]/40 rounded-full blur-[100px] pointer-events-none" />
 
             <div className="relative w-full max-w-[560px] aspect-square flex items-center justify-center">
-              
-              {!videoError ? (
-                /* High-Fidelity Glassy Orb Video with exact CSS filters & blending mode */
-                <video
-                  src="https://future.co/images/homepage/glassy-orb/orb-purple.webm"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  onError={() => setVideoError(true)}
-                  className="w-full h-full object-contain scale-125 pointer-events-none drop-shadow-2xl transition-all duration-700"
-                  style={{
-                    mixBlendMode: "screen",
-                    filter: "hue-rotate(-55deg) saturate(250%) brightness(1.2) contrast(1.1)",
-                  }}
-                />
-              ) : (
-                /* High-Precision Canvas Glassy Orb Fallback if network blocks webm */
-                <div 
-                  className="relative w-[420px] h-[420px] rounded-full flex items-center justify-center p-8 select-none"
-                >
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#60B1FF] via-[#0084FF] to-[#319AFF] blur-[40px] opacity-60 animate-pulse" />
-                  <div 
-                    className="relative w-full h-full rounded-full border border-white/40 flex items-center justify-center shadow-2xl backdrop-blur-2xl"
+              <div ref={orbMotionRef} className="flex h-full w-full items-center justify-center will-change-transform">
+                {!videoError ? (
+                  /* High-Fidelity Glassy Orb Video with exact CSS filters & blending mode */
+                  <video
+                    src="https://future.co/images/homepage/glassy-orb/orb-purple.webm"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    onError={() => setVideoError(true)}
+                    className="w-full h-full object-contain scale-125 pointer-events-none drop-shadow-2xl transition-all duration-700"
                     style={{
-                      background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9) 0%, rgba(96,177,255,0.6) 35%, rgba(0,132,255,0.8) 70%, rgba(49,154,255,0.9) 100%)",
-                      boxShadow: "inset -15px -15px 40px rgba(0,84,180,0.5), inset 15px 15px 40px rgba(255,255,255,0.8), 0 25px 50px -12px rgba(0,132,255,0.3)"
+                      mixBlendMode: "screen",
+                      filter: "hue-rotate(-55deg) saturate(250%) brightness(1.2) contrast(1.1)",
                     }}
-                  >
-                    <div className="w-1/2 h-1/2 rounded-full border-2 border-white/60 blur-[2px] bg-white/20" />
+                  />
+                ) : (
+                  /* High-Precision Canvas Glassy Orb Fallback if network blocks webm */
+                  <div className="relative w-[420px] h-[420px] rounded-full flex items-center justify-center p-8 select-none">
+                    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#60B1FF] via-[#0084FF] to-[#319AFF] blur-[40px] opacity-60 animate-pulse" />
+                    <div
+                      className="relative w-full h-full rounded-full border border-white/40 flex items-center justify-center shadow-2xl backdrop-blur-2xl"
+                      style={{
+                        background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9) 0%, rgba(96,177,255,0.6) 35%, rgba(0,132,255,0.8) 70%, rgba(49,154,255,0.9) 100%)",
+                        boxShadow: "inset -15px -15px 40px rgba(0,84,180,0.5), inset 15px 15px 40px rgba(255,255,255,0.8), 0 25px 50px -12px rgba(0,132,255,0.3)"
+                      }}
+                    >
+                      <div className="w-1/2 h-1/2 rounded-full border-2 border-white/60 blur-[2px] bg-white/20" />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Floating Glass UI Card overlay on the Orb (Static visual element) */}
               <div 

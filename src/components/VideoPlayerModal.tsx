@@ -1,7 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { X, Download, Copy, Check, Play, Pause, RefreshCw, Share2, Sparkles, Film, Maximize } from "lucide-react";
 import { VideoTask, ApiConfig } from "../types";
-import { apiUrl } from "../lib/api";
+import { apiUrl, authHeaders } from "../lib/api";
 
 interface VideoPlayerModalProps {
   isOpen: boolean;
@@ -23,6 +23,17 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !task) return null;
 
@@ -87,10 +98,10 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
       // 2. Try proxy endpoint via POST with x-api-key header
       const res = await fetch(apiUrl("/api/video-download"), {
         method: "POST",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
           "x-api-key": apiConfig.apiKey || "",
-        },
+        }),
         body: JSON.stringify({
           videoUrl: task.videoUrl || "",
           operationName: task.operationName || "",
@@ -129,10 +140,25 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭视频预览"
+          title="关闭"
+          className="absolute right-3 top-3 z-30 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-950/80 text-white shadow-lg ring-1 ring-white/10 transition-colors hover:bg-slate-800"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
         {/* Top Header */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5 bg-slate-950/60">
+        <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-slate-800/80 bg-slate-950/60 px-5 py-3.5 pr-16">
           <div className="flex items-center space-x-2">
             <Film className="h-4 w-4 text-indigo-400" />
             <h3 className="text-sm font-bold text-white">高清 AI 视频全屏预览</h3>
@@ -149,7 +175,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
         </div>
 
         {/* Video Player Container */}
-        <div className="relative flex items-center justify-center bg-black p-2 min-h-[320px]">
+        <div className="relative flex min-h-0 shrink-0 items-center justify-center bg-black p-2">
           {task.videoUrl ? (
             <div className={`relative overflow-hidden rounded-xl shadow-2xl ${getAspectClass(task.aspectRatio)}`}>
               <video
@@ -172,7 +198,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
         </div>
 
         {/* Video Metadata & Actions */}
-        <div className="p-5 bg-slate-900 border-t border-slate-800">
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-slate-800 bg-slate-900 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex-1 pr-4">
               <div className="flex items-center space-x-2 mb-1">
