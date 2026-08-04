@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Sparkles, RefreshCw, Maximize2, X, Upload, Wand2 } from "lucide-react";
 import { ApiEndpointConfig, ImageTask, ImageAspectRatio, TaskSource } from "../types";
 import { fetchJson, normalizeImageUrl } from "../lib/api";
-import { analyzeReferenceImage, appendNegativePrompt } from "../lib/referenceImage";
 import { AiPromptWriterModal } from "./AiPromptWriterModal";
 
 interface ImageStudioProps {
@@ -57,7 +56,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isAnalyzingReference, setIsAnalyzingReference] = useState<boolean>(false);
+  const [isWritingNegativePrompt, setIsWritingNegativePrompt] = useState<boolean>(false);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [isAiWriterOpen, setIsAiWriterOpen] = useState(false);
 
@@ -80,29 +79,33 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     prefilledPrompt?.negativePrompt,
   ]);
 
-  React.useEffect(() => {
-    if (!referenceImage || !chatConfig?.apiKey) {
-      setIsAnalyzingReference(false);
-      return;
+  const handleWriteNegativePrompt = async () => {
+    if (!referenceImage || isWritingNegativePrompt || !showAiWriter) return;
+
+    setIsWritingNegativePrompt(true);
+    try {
+      const data = await fetchJson<{ generatedPrompt?: string; error?: string }>("/api/ai-writer-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: "请分析这张参考图",
+          targetLanguage: "zh",
+          mode: "image-negative",
+          imageUrl: referenceImage,
+          apiKey: imageConfig.apiKey,
+          chatConfig,
+        }),
+      }, 180000);
+
+      if (data.generatedPrompt?.trim()) {
+        setNegativePrompt(data.generatedPrompt.trim());
+      }
+    } catch (error) {
+      console.warn("Reference image negative prompt generation failed:", error);
+    } finally {
+      setIsWritingNegativePrompt(false);
     }
-    let cancelled = false;
-    setIsAnalyzingReference(true);
-    analyzeReferenceImage(referenceImage, chatConfig, "image")
-      .then((generatedNegativePrompt) => {
-        if (!cancelled && generatedNegativePrompt) {
-          setNegativePrompt((current) => appendNegativePrompt(current, generatedNegativePrompt));
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) console.warn("Reference image analysis failed:", error);
-      })
-      .finally(() => {
-        if (!cancelled) setIsAnalyzingReference(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [referenceImage, chatConfig]);
+  };
 
   // Submit Image Generation
   const handleGenerateImage = async () => {
@@ -299,7 +302,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               <label className="block text-xs font-semibold text-slate-800">
                 反向提示词 (Negative Prompt - 排除元素)
               </label>
-              {isAnalyzingReference && <span className="text-[11px] text-[#0f766e]">AI 正在识别参考图...</span>}
             </div>
             <input
               type="text"
@@ -308,6 +310,17 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               placeholder="变形、模糊、多余手指、低质量、乱码文本..."
               className="home-glass-input w-full px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400"
             />
+            <button
+              type="button"
+              onClick={handleWriteNegativePrompt}
+              disabled={isWritingNegativePrompt}
+              aria-busy={isWritingNegativePrompt}
+              className="image-studio-ai-write mt-2"
+              hidden={!showAiWriter}
+            >
+              {isWritingNegativePrompt ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+              <span>{isWritingNegativePrompt ? "正在识别图片..." : "AI 帮写"}</span>
+            </button>
           </div>
 
           {/* Submit Button */}

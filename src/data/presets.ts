@@ -122,6 +122,13 @@ export const CHAT_PRESET_PROVIDERS: PresetProvider[] = [
 
 export const IMAGE_PRESET_PROVIDERS: PresetProvider[] = [
   {
+    id: "ai2api-image",
+    name: "AI2API 图像接口",
+    description: "固定图像生成接口，填写 API Key 和模型即可调用",
+    defaultUrl: "https://ai2api.cc/v1/images/generations",
+    models: ["gpt-image-2", "gpt-image-1"],
+  },
+  {
     id: "google-imagen",
     name: "Google Imagen 3",
     description: "Imagen 3 高保真高质量图像生成模型",

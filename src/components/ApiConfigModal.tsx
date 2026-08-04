@@ -18,8 +18,17 @@ const CUSTOM_PROVIDER_BY_TAB = {
   image: "custom-image",
 } as const;
 
+const FIXED_PROVIDER_BY_TAB = {
+  video: "ycvip-grok",
+  image: "ai2api-image",
+} as const;
+
 function normalizeCustomConfig(config: MultiApiConfig): MultiApiConfig {
   const useCustomVideoEndpoint = config.video.provider === CUSTOM_PROVIDER_BY_TAB.video && Boolean(config.video.apiUrl?.trim());
+  const useCustomImageEndpoint = config.image.provider === CUSTOM_PROVIDER_BY_TAB.image && Boolean(config.image.apiUrl?.trim());
+  const shouldUseDefaultImageModel = !config.image.selectedModel?.trim() ||
+    config.image.provider === "google-imagen" ||
+    config.image.provider === CUSTOM_PROVIDER_BY_TAB.image;
   return {
     video: {
       ...config.video,
@@ -33,8 +42,9 @@ function normalizeCustomConfig(config: MultiApiConfig): MultiApiConfig {
     },
     image: {
       ...config.image,
-      provider: CUSTOM_PROVIDER_BY_TAB.image,
-      apiUrl: config.image.provider === CUSTOM_PROVIDER_BY_TAB.image ? config.image.apiUrl : "",
+      provider: useCustomImageEndpoint ? CUSTOM_PROVIDER_BY_TAB.image : FIXED_PROVIDER_BY_TAB.image,
+      apiUrl: useCustomImageEndpoint ? config.image.apiUrl : "",
+      selectedModel: !useCustomImageEndpoint && shouldUseDefaultImageModel ? "gpt-image-2" : config.image.selectedModel,
     },
   };
 }
@@ -90,6 +100,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
   );
   const visibleApiUrl = currentTabConfig.apiUrl;
   const isCustomVideoEndpoint = activeTab === "video" && currentTabConfig.provider === CUSTOM_PROVIDER_BY_TAB.video;
+  const isCustomImageEndpoint = activeTab === "image" && currentTabConfig.provider === CUSTOM_PROVIDER_BY_TAB.image;
 
   const handleProviderSelect = (provider: PresetProvider) => {
     updateCurrentTabConfig({
@@ -263,8 +274,49 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
             </div>
           )}
 
+          {activeTab === "image" && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">图像接口方式</span>
+                <span className="text-[11px] text-slate-500">
+                  {isCustomImageEndpoint ? "已启用自定义接口" : "默认使用 AI2API 指定接口"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateCurrentTabConfig({
+                    provider: FIXED_PROVIDER_BY_TAB.image,
+                    apiUrl: "",
+                    selectedModel: !currentTabConfig.selectedModel?.trim() || currentTabConfig.selectedModel.includes("imagen") || currentTabConfig.selectedModel === "custom-image-model"
+                      ? "gpt-image-2"
+                      : currentTabConfig.selectedModel,
+                  })}
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                    !isCustomImageEndpoint
+                      ? "border-pink-500 bg-pink-600 text-white"
+                      : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
+                  }`}
+                >
+                  指定接口
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCurrentTabConfig({ provider: CUSTOM_PROVIDER_BY_TAB.image })}
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                    isCustomImageEndpoint
+                      ? "border-pink-500 bg-pink-600 text-white"
+                      : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
+                  }`}
+                >
+                  自定义接口
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Custom API Endpoint URL Input */}
-          {(activeTab !== "video" || isCustomVideoEndpoint) && (
+          {(activeTab === "chat" || isCustomVideoEndpoint || isCustomImageEndpoint) && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">

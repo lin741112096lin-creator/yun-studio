@@ -8,7 +8,8 @@ interface AiPromptWriterModalProps {
   onClose: () => void;
   apiConfig: ApiConfig;
   chatConfig?: ApiEndpointConfig;
-  promptType?: "video" | "image";
+  promptType?: "video" | "image" | "image-negative";
+  referenceImage?: string | null;
   onApplyPrompt: (generatedPrompt: string) => void;
 }
 
@@ -20,6 +21,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
   apiConfig,
   chatConfig,
   promptType = "video",
+  referenceImage,
   onApplyPrompt,
 }) => {
   const [topic, setTopic] = useState<string>("");
@@ -29,7 +31,8 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedPrompt, setGeneratedPrompt] = useState<string>("");
   const [isCopied, setIsCopied] = useState<boolean>(false);
-  const isImagePrompt = promptType === "image";
+  const isImagePrompt = promptType !== "video";
+  const isNegativeImagePrompt = promptType === "image-negative";
 
   if (!isOpen) return null;
 
@@ -43,7 +46,8 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
   ];
 
   const handleGenerate = async () => {
-    if (!topic.trim()) {
+    const canAnalyzeReference = isNegativeImagePrompt && Boolean(referenceImage);
+    if (!topic.trim() && !canAnalyzeReference) {
       alert("请输入您的视频创意主题或简单灵感");
       return;
     }
@@ -55,11 +59,12 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          topic: topic.trim(),
+          topic: topic.trim() || "请分析这张参考图",
           theme,
           cameraPreference,
           targetLanguage: language,
           mode: promptType,
+          imageUrl: canAnalyzeReference ? referenceImage : undefined,
           apiKey: apiConfig.apiKey,
           chatConfig,
         }),
@@ -97,7 +102,10 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-2xl rounded-2xl border border-indigo-500/30 bg-slate-900 p-6 shadow-2xl">
+      <div
+        className="relative w-full max-w-2xl rounded-2xl border border-indigo-500/30 bg-slate-900 p-6 shadow-2xl"
+        data-prompt-mode={isNegativeImagePrompt ? "negative" : "positive"}
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center space-x-2.5">
@@ -106,13 +114,15 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-                <span>AI 帮写提示词</span>
+                <span>{isNegativeImagePrompt ? "AI 帮写反向提示词" : "AI 帮写提示词"}</span>
                 <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-300 border border-indigo-500/30">
                   Gemini 3.6 Flash 驱动
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                输入简单的灵感点子，AI 导播将自动帮您撰写高连贯度与画质感的专业提示词
+                {isNegativeImagePrompt
+                  ? "输入主体或画面类型，AI 将整理需要排除的常见问题"
+                  : "输入简单的灵感点子，AI 导播将自动帮您撰写高连贯度与画质感的专业提示词"}
               </p>
             </div>
           </div>
@@ -129,19 +139,20 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
           {/* Topic Input */}
           <div>
             <label className="block text-xs font-bold text-slate-200 mb-1.5">
-              1. 创意点子 / 基础主题 <span className="text-rose-400">*</span>
+              {isNegativeImagePrompt ? "1. 图像主体 / 画面类型" : "1. 创意点子 / 基础主题"}{" "}
+              {isNegativeImagePrompt && referenceImage ? <span className="text-slate-500">（可选）</span> : <span className="text-rose-400">*</span>}
             </label>
             <input
               type="text"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="例如：雨夜霓虹街道、海边看日落的少女、极光下的木屋..."
+              placeholder={isNegativeImagePrompt ? "例如：人物肖像、产品白底图、宠物插画..." : "例如：雨夜霓虹街道、海边看日落的少女、极光下的木屋..."}
               className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
 
             {/* Quick Inspiration Pills */}
             <div className="mt-2.5 flex items-center space-x-1.5 flex-wrap gap-y-1 text-[11px]">
-              <span className="text-slate-500 mr-1">灵感推荐:</span>
+              <span className="text-slate-500 mr-1">{isNegativeImagePrompt ? "常见主体:" : "灵感推荐:"}</span>
               {quickIdeas.map((idea) => (
                 <button
                   key={idea}
@@ -225,7 +236,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={isGenerating || !topic.trim()}
+            disabled={isGenerating || (!topic.trim() && !(isNegativeImagePrompt && referenceImage))}
             className="w-full flex items-center justify-center space-x-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-50"
           >
             {isGenerating ? (
@@ -236,7 +247,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
             ) : (
               <>
                 <Wand2 className="h-4 w-4" />
-                <span>生成专业 AI 视频提示词</span>
+                <span>{isNegativeImagePrompt ? "生成反向提示词" : isImagePrompt ? "生成专业 AI 图像提示词" : "生成专业 AI 视频提示词"}</span>
               </>
             )}
           </button>
@@ -280,7 +291,7 @@ export const AiPromptWriterModal: React.FC<AiPromptWriterModalProps> = ({
                   onClick={handleApply}
                   className="flex items-center space-x-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-indigo-500 transition-all"
                 >
-                  <span>套用到视频描述框</span>
+                  <span>{isNegativeImagePrompt ? "套用到反向提示词框" : isImagePrompt ? "套用到图像提示词框" : "套用到视频描述框"}</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>

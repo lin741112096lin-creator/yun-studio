@@ -1361,6 +1361,62 @@ async function callGeminiGenerateText(
   return null;
 }
 
+async function loadInlineImageData(imageUrl: string): Promise<{ mimeType: string; data: string } | null> {
+  const dataMatch = imageUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+  if (dataMatch) return { mimeType: dataMatch[1], data: dataMatch[2] };
+  if (!/^https?:\/\//i.test(imageUrl)) return null;
+
+  try {
+    const imageRes = await safeFetch(imageUrl, { headers: { "User-Agent": "CloudStudio/1.0" } });
+    const contentType = imageRes.headers.get("content-type")?.split(";", 1)[0].trim() || "";
+    if (!imageRes.ok || !contentType.startsWith("image/")) return null;
+    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+    if (!imageBuffer.length || imageBuffer.length > 12 * 1024 * 1024) return null;
+    return { mimeType: contentType, data: imageBuffer.toString("base64") };
+  } catch (error: any) {
+    console.warn("[AI Writer] Reference image download skipped:", error?.message || error);
+    return null;
+  }
+}
+
+async function callGeminiGenerateTextWithImage(
+  ai: GoogleGenAI,
+  systemInstruction: string,
+  userPrompt: string,
+  imageUrl: string,
+  temperature: number = 0.2,
+): Promise<string | null> {
+  const image = await loadInlineImageData(imageUrl);
+  if (!image) return null;
+
+  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro"];
+  for (const model of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{
+          role: "user",
+          parts: [
+            { text: userPrompt },
+            { inlineData: image },
+          ],
+        }],
+        config: {
+          systemInstruction,
+          temperature,
+        },
+      });
+      const text = response.text?.trim();
+      if (text && text.length > 3) {
+        return text.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+      }
+    } catch (error: any) {
+      console.warn(`[Gemini Image Writer] Model ${model} failed:`, error?.message || error);
+    }
+  }
+  return null;
+}
+
 function resolveChatTargetUrl(provider: string, apiUrl?: string): string {
   if (apiUrl?.trim()) return apiUrl.trim();
 
@@ -1376,6 +1432,7 @@ function resolveChatTargetUrl(provider: string, apiUrl?: string): string {
 
 function resolveImageTargetUrl(provider: string, apiUrl?: string): string {
   if (apiUrl?.trim()) return apiUrl.trim();
+  if (provider === "ai2api-image" || provider === "custom-image") return "https://ai2api.cc/v1/images/generations";
   if (provider === "flux-ycvip") return "https://ycvip.net/v1/images/generations";
   return "https://api.openai.com/v1/images/generations";
 }
@@ -1402,7 +1459,7 @@ function resolveVideoTargetUrl(provider: string, apiUrl?: string): string | unde
 // 3.1 AI Prompt Writer Assistant Route (AI 帮写提示词)
 app.post("/api/ai-writer-prompt", async (req, res) => {
   try {
-    const { topic, theme, cameraPreference, targetLanguage = "zh", mode = "video", apiKey, chatConfig } = req.body;
+    const { topic, theme, cameraPreference, targetLanguage = "zh", mode = "video", imageUrl, apiKey, chatConfig } = req.body;
     if (!topic) {
       res.status(400).json({ error: "创意主题或想法不能为空" });
       return;
@@ -1418,28 +1475,47 @@ app.post("/api/ai-writer-prompt", async (req, res) => {
 4. **输出规范**：直接输出完整的一段精炼提示词段落，不要带有标签、说明文字或 Markdown 列表。
 如果目标语言为英文 (en)，请生成精湛英文提示词；如果为中文 (zh)，请生成高水准中文提示词。`;
 
-    const writerInstruction = mode === "image"
-      ? "You are an expert AI image prompt writer. Create a concise visual prompt covering subject, composition, environment, lighting, materials, framing, and style. Preserve the user's core idea. Return only the final prompt, with no explanation or headings."
-      : systemInstruction;
+    const writerInstruction = mode === "image-negative"
+      ? imageUrl
+        ? "You are an expert AI image negative-prompt writer. Inspect the provided reference image itself. List only visible details that a future image generation must not change or damage, such as deformation, wrong colors, altered materials, missing patterns, structural errors, blur, extra objects, text, watermark, and artifacts. Do not guess details that are unclear. Return only a concise comma-separated negative prompt. Do not describe the desired image or add explanations."
+        : "You are an expert AI image negative-prompt writer. Based on the user's image subject, list unwanted elements such as deformation, anatomy errors, blur, low quality, extra objects, text, watermark, and artifacts. Return only a concise comma-separated negative prompt. Do not describe the desired image and do not add explanations."
+      : mode === "image"
+        ? "You are an expert AI image prompt writer. Create a concise visual prompt covering subject, composition, environment, lighting, materials, framing, and style. Preserve the user's core idea. Return only the final prompt, with no explanation or headings."
+        : systemInstruction;
 
-    const userContent = `创意主题: "${topic}"\n期望氛围风格: "${theme || "默认"}"\n运镜偏好: "${
-      cameraPreference || "默认"
-    }"\n语言: "${targetLanguage}"`;
+    const userContent = mode === "image-negative" && imageUrl
+      ? `请检查用户上传的参考图，生成与这张图直接相关的反向提示词。补充主题: "${topic || "参考图"}"。语言: "${targetLanguage}"。`
+      : `创意主题: "${topic}"\n期望氛围风格: "${theme || "默认"}"\n运镜偏好: "${
+        cameraPreference || "默认"
+      }"\n语言: "${targetLanguage}"`;
 
-    const conciseWriterRule = mode === "image"
-      ? "Return only a concise final image prompt with key points. Avoid decorative filler and keep it under 120 words."
-      : "Return only a concise final video prompt with key points. Do not explain reasoning, avoid decorative filler, and keep it under 120 words.";
+    const conciseWriterRule = mode === "image-negative"
+      ? "Return only a short comma-separated list of unwanted elements. Keep it under 80 words."
+      : mode === "image"
+        ? "Return only a concise final image prompt with key points. Avoid decorative filler and keep it under 120 words."
+        : "Return only a concise final video prompt with key points. Do not explain reasoning, avoid decorative filler, and keep it under 120 words.";
     let generatedPrompt: string | null = null;
 
     // A. Try Gemini
     const ai = getGenAIClient(apiKey || chatConfig?.apiKey);
     if (ai) {
-      generatedPrompt = await callGeminiGenerateText(ai, `${writerInstruction}\n\n${conciseWriterRule}`, userContent, 0.8);
+      generatedPrompt = mode === "image-negative" && imageUrl
+        ? await callGeminiGenerateTextWithImage(ai, `${writerInstruction}\n\n${conciseWriterRule}`, userContent, imageUrl, 0.2)
+        : await callGeminiGenerateText(ai, `${writerInstruction}\n\n${conciseWriterRule}`, userContent, 0.8);
     }
 
     // B. Try Chat API proxy if Gemini unavailable
     if (!generatedPrompt && chatConfig && chatConfig.apiKey) {
       try {
+        const chatUserMessage = mode === "image-negative" && imageUrl
+          ? {
+              role: "user",
+              content: [
+                { type: "text", text: userContent },
+                { type: "image_url", image_url: { url: imageUrl } },
+              ],
+            }
+          : { role: "user", content: userContent };
         const chatRes = await fetch(resolveChatTargetUrl(chatConfig.provider, chatConfig.apiUrl), {
           method: "POST",
           headers: {
@@ -1450,7 +1526,7 @@ app.post("/api/ai-writer-prompt", async (req, res) => {
             model: chatConfig.selectedModel || "gpt-4o-mini",
             messages: [
               { role: "system", content: `${writerInstruction}\n\n${conciseWriterRule}` },
-              { role: "user", content: userContent },
+              chatUserMessage,
             ],
             temperature: 0.8,
             stream: false,
@@ -1470,6 +1546,13 @@ app.post("/api/ai-writer-prompt", async (req, res) => {
     }
 
     // C. Dynamic Fallback
+    if (!generatedPrompt && mode === "image-negative" && imageUrl) {
+      res.status(502).json({ error: "参考图识别失败，请检查视觉模型、API Key 或接口配置后重试。" });
+      return;
+    }
+    if (!generatedPrompt && mode === "image-negative") {
+      generatedPrompt = "deformation, anatomy errors, blur, low quality, noise, extra objects, text, watermark, artifacts";
+    }
     if (!generatedPrompt) {
       generatedPrompt = `${topic}，${theme || "电影级视觉质感"}，${
         cameraPreference || "镜头平滑推近"

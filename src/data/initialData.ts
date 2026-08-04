@@ -19,9 +19,9 @@ export const DEFAULT_MULTI_CONFIG: MultiApiConfig = {
     selectedModel: "gemini-3.6-flash",
   },
   image: {
-    provider: "google-imagen",
+    provider: "ai2api-image",
     apiUrl: "",
     apiKey: "",
-    selectedModel: "imagen-3.0-generate-002",
+    selectedModel: "gpt-image-2",
   },
 };
