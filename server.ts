@@ -22,6 +22,7 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4173;
 const VIDEO_CREATE_TIMEOUT_MS = 120_000;
 const VIDEO_STATUS_REQUEST_TIMEOUT_MS = 15_000;
 const VIDEO_STATUS_LOOKUP_DEADLINE_MS = 30_000;
+const IMAGE_GENERATION_TIMEOUT_MS = 120_000;
 
 type AuthRole = "admin" | "user";
 
@@ -2093,7 +2094,7 @@ app.post("/api/generate-image", async (req, res) => {
       method: "POST",
       headers,
       body: JSON.stringify(requestPayload),
-    }, 165000);
+    }, IMAGE_GENERATION_TIMEOUT_MS);
 
     if (!targetRes.ok) {
       const errText = await targetRes.text();
@@ -2129,7 +2130,7 @@ app.post("/api/generate-image", async (req, res) => {
           method: "POST",
           headers,
           body: JSON.stringify(retryPayload),
-        }, 165000);
+        }, IMAGE_GENERATION_TIMEOUT_MS);
         if (retryRes.ok) {
           targetRes = retryRes;
           referenceRetrySucceeded = true;
